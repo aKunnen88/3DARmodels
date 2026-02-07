@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <title>Arduino Nano AR Visualisatie</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.4.0/model-viewer.min.js"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; background-color: #f5f5f7; }
+        header { width: 100%; padding: 20px; text-align: center; background: white; }
+        model-viewer { width: 100%; flex-grow: 1; }
+        .footer { padding: 30px; text-align: center; }
+        #ar-button { background-color: #0071e3; color: white; border: none; padding: 14px 28px; border-radius: 25px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <header><h1>Arduino Nano AR</h1></header>
+    <model-viewer src="ARTest.glb" ios-src="arduino-nano.usdz" ar ar-modes="webxr scene-viewer quick-look" camera-controls shadow-intensity="1" auto-rotate environment-image="neutral">
+        <button slot="ar-button" id="ar-button"> Bekijk in AR</button>
+    </model-viewer>
+    <div class="footer"><p>Scan een oppervlak om het model te plaatsen.</p></div>
+</body>
+</html>
