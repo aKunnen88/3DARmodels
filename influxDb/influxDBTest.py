@@ -28,7 +28,7 @@ query_api = client.query_api()
 point = Point("sensor_data") \
     .tag("device", "arduino-nano") \
     .field("temperature", 27.5) \
-    .field("light", 300) \
+    .field("light", 200) \
 
 # Schrijf de data
 write_api.write(bucket=bucket, org=org, record=point)
