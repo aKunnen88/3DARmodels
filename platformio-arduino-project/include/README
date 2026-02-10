@@ -1,0 +1,12 @@
+This file is intentionally left blank.
+
+Runnen
+py -m platformio run --target upload
+py -m platformio device monitor -b 9600
+
+
+
+from(bucket: "YOUR_BUCKET")
+  |> range(start: -1h)
+  |> filter(fn: (r) => r._measurement == "sensor_data")
+  |> filter(fn: (r) => r._field == "distance_cm")
