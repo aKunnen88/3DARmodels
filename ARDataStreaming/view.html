@@ -37,7 +37,7 @@
     </div>
 
     <script>
-        const wsUrl = `ws://${window.location.hostname}:3000/ws`;
+        const wsUrl = `wss://${window.location.hostname}:3000/ws`;
         const socket = new WebSocket(wsUrl);
         const statusEl = document.getElementById('status');
         const chatContainer = document.getElementById('chatContainer');

@@ -13,15 +13,15 @@ load_dotenv(dotenv_path=env_path)
 
 app = FastAPI()
 
-# Voeg dit toe om de AR-bestanden (modellen en index.html) bereikbaar te maken
-app.mount("/ar", StaticFiles(directory="../docs"), name="ar")
-
+# Belangrijk voor toegang vanaf andere apparaten
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/ar", StaticFiles(directory="../docs"), name="ar")
 
 connected_clients = {}
 
@@ -61,7 +61,8 @@ async def health():
 
 @app.get("/")
 async def root():
-    return FileResponse("view.html")
+    # Verander ar.html naar index.html
+    return FileResponse("../docs/index.html")
 
 if __name__ == "__main__":
     import uvicorn

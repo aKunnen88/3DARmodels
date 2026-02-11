@@ -16,9 +16,17 @@
     </style>
 </head>
 <body>
-    <header><h1>Arduino Nano AR</h1></header>
+    <header><h1>Arduino Nano AR Dashboard</h1></header>
+    <div style="text-align: center; padding: 20px;">
+        <!-- Voeg /ar/ toe voor het pad van de afbeelding -->
+        <img src="/ar/ultrasoon_schema.png" id="schema" style="width:300px; cursor:pointer; border-radius: 15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+        <p>Klik op het schema om de <b>AR Live View</b> te openen</p>
+        <!-- Pas ook de link naar ar.html aan -->
+        <button onclick="window.location.href='/ar/ar.html'" id="ar-button">Start AR Camera</button>
+    </div>
     <div style="position: relative; width: 100%; flex-grow: 1;">
-        <model-viewer src="ARTest.glb" ios-src="arduino-nano.usdz" ar ar-modes="webxr scene-viewer quick-look" camera-controls shadow-intensity="1" auto-rotate environment-image="neutral">
+        <!-- Voeg /ar/ toe voor het model en de ios-src -->
+        <model-viewer src="/ar/ARTest.glb" ios-src="/ar/arduino-nano.usdz" ar ar-modes="webxr scene-viewer quick-look" camera-controls shadow-intensity="1" auto-rotate environment-image="neutral">
             <button slot="ar-button" id="ar-button"> Bekijk in AR</button>
         </model-viewer>
         <div class="data-panel">
@@ -29,8 +37,9 @@
     <div class="footer"><p>Scan een oppervlak om het model te plaatsen.</p></div>
 
     <script>
-        // Gebruik 'ws' bij lokaal testen, 'window.location.host' pakt de juiste poort mee indien nodig
-        const socket = new WebSocket("ws://" + window.location.host + "/ws");
+        // Bepaal protocol op basis van de huidige pagina (http -> ws, https -> wss)
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
         
         socket.onopen = () => {
             document.getElementById("status").textContent = "🟢 Verbonden";
