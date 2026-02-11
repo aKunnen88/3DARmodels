@@ -9,15 +9,44 @@
         body { margin: 0; font-family: -apple-system, sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; background-color: #f5f5f7; }
         header { width: 100%; padding: 20px; text-align: center; background: white; }
         model-viewer { width: 100%; flex-grow: 1; }
+        .data-panel { position: absolute; top: 20px; right: 20px; background: rgba(0,0,0,0.8); color: white; padding: 15px; border-radius: 10px; font-size: 18px; min-width: 150px; }
         .footer { padding: 30px; text-align: center; }
         #ar-button { background-color: #0071e3; color: white; border: none; padding: 14px 28px; border-radius: 25px; cursor: pointer; }
+        #status { font-size: 12px; color: #aaa; margin-top: 5px; }
     </style>
 </head>
 <body>
     <header><h1>Arduino Nano AR</h1></header>
-    <model-viewer src="ARTest.glb" ios-src="arduino-nano.usdz" ar ar-modes="webxr scene-viewer quick-look" camera-controls shadow-intensity="1" auto-rotate environment-image="neutral">
-        <button slot="ar-button" id="ar-button"> Bekijk in AR</button>
-    </model-viewer>
+    <div style="position: relative; width: 100%; flex-grow: 1;">
+        <model-viewer src="ARTest.glb" ios-src="arduino-nano.usdz" ar ar-modes="webxr scene-viewer quick-look" camera-controls shadow-intensity="1" auto-rotate environment-image="neutral">
+            <button slot="ar-button" id="ar-button"> Bekijk in AR</button>
+        </model-viewer>
+        <div class="data-panel">
+            <div>Afstand: <span id="distance">--</span> cm</div>
+            <div id="status">Verbinden...</div>
+        </div>
+    </div>
     <div class="footer"><p>Scan een oppervlak om het model te plaatsen.</p></div>
+
+    <script>
+        const socket = new WebSocket("ws://" + window.location.hostname + ":8000/ws");
+        
+        socket.onopen = () => {
+            document.getElementById("status").textContent = "🟢 Verbonden";
+        };
+        
+        socket.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            document.getElementById("distance").textContent = data.distance.toFixed(2);
+        };
+        
+        socket.onerror = () => {
+            document.getElementById("status").textContent = "🔴 Fout";
+        };
+        
+        socket.onclose = () => {
+            document.getElementById("status").textContent = "🔴 Verbroken";
+        };
+    </script>
 </body>
 </html>

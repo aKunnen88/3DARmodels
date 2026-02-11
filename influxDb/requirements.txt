@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+influxdb-client
+python-dotenv
+pyserial
