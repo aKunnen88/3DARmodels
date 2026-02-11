@@ -13,6 +13,9 @@ load_dotenv(dotenv_path=env_path)
 
 app = FastAPI()
 
+# Voeg dit toe om de AR-bestanden (modellen en index.html) bereikbaar te maken
+app.mount("/ar", StaticFiles(directory="../docs"), name="ar")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

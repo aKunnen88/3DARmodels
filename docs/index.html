@@ -29,7 +29,8 @@
     <div class="footer"><p>Scan een oppervlak om het model te plaatsen.</p></div>
 
     <script>
-        const socket = new WebSocket("ws://" + window.location.hostname + ":3000/ws");
+        // Gebruik 'ws' bij lokaal testen, 'window.location.host' pakt de juiste poort mee indien nodig
+        const socket = new WebSocket("ws://" + window.location.host + "/ws");
         
         socket.onopen = () => {
             document.getElementById("status").textContent = "🟢 Verbonden";
@@ -40,10 +41,6 @@
             if (data.type === 'sensor') {
                 document.getElementById("distance").textContent = data.distance.toFixed(2);
             }
-        };
-        
-        socket.onerror = () => {
-            document.getElementById("status").textContent = "🔴 Fout";
         };
         
         socket.onclose = () => {
