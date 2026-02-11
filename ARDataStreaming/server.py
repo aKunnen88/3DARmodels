@@ -22,6 +22,16 @@ app.add_middleware(
 
 connected_clients = {}
 
+@app.post("/update-sensor")
+async def update_sensor(data: dict):
+    # Broadcast de sensor data naar alle verbonden AR clients
+    for cid, client in connected_clients.items():
+        try:
+            await client.send_json({"type": "sensor", "distance": data["distance"]})
+        except:
+            pass
+    return {"status": "sent"}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()

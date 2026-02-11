@@ -5,6 +5,7 @@ import serial
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
 import re
+import requests # Voeg requests toe aan requirements.txt
 
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
@@ -41,3 +42,10 @@ while True:
             .time(None, WritePrecision.NS)
         )
         write_api.write(bucket=bucket, org=org, record=point)
+        
+        # Stuur data naar de Backend API zodat deze via WebSockets naar de AR app gaat
+        try:
+            server_url = "http://localhost:3000/update-sensor"
+            requests.post(server_url, json={"distance": distance_cm})
+        except Exception as e:
+            print(f"Kon data niet naar backend sturen: {e}")
