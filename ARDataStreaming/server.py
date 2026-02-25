@@ -1,70 +1,79 @@
-from fastapi import FastAPI, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-import asyncio
+from fastapi import FastAPI
+from fastapi.websockets import WebSocket
+import paho.mqtt.client as mqtt
 import json
+import asyncio
 import os
 from dotenv import load_dotenv
-from pathlib import Path
 
-env_path = Path(__file__).parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv()
 
 app = FastAPI()
 
-# Belangrijk voor toegang vanaf andere apparaten
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+MQTT_BROKER = os.getenv("MQTT_BROKER")
+MQTT_PORT = int(os.getenv("MQTT_PORT", 8883))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+MQTT_TOPIC = "bachelor/sensor/distance"
 
-app.mount("/ar", StaticFiles(directory="../docs"), name="ar")
+# WebSocket connecties bijhouden
+active_connections = []
 
-connected_clients = {}
+# MQTT client
+mqtt_client = mqtt.Client()
 
-@app.post("/update-sensor")
-async def update_sensor(data: dict):
-    # Broadcast de sensor data naar alle verbonden AR clients
-    for cid, client in connected_clients.items():
+def on_message(client, userdata, msg):
+    global latest_distance
+    try:
+        distance = int(msg.payload.decode())
+        latest_distance = distance
+        print(f"MQTT ontvangen: {distance} cm")
+        
+        # Broadcast naar alle WebSocket clients
+        asyncio.create_task(broadcast_to_clients({
+            "type": "sensor",
+            "distance": distance
+        }))
+    except ValueError:
+        pass
+
+def on_connect(client, userdata, flags, rc):
+    if rc == 0:
+        print(f"Server MQTT Connected!")
+        client.subscribe(MQTT_TOPIC)
+    else:
+        print(f"Connection failed with code {rc}")
+
+mqtt_client.on_connect = on_connect
+mqtt_client.on_message = on_message
+mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
+mqtt_client.tls_set()  # TLS/SSL voor poort 8883
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+mqtt_client.loop_start()
+
+async def broadcast_to_clients(data):
+    for connection in active_connections:
         try:
-            await client.send_json({"type": "sensor", "distance": data["distance"]})
+            await connection.send_json(data)
         except:
             pass
-    return {"status": "sent"}
 
-@app.websocket("/ws")
+@app.websocket("/ws/sensor")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    client_id = id(websocket)
-    connected_clients[client_id] = websocket
+    active_connections.append(websocket)
     
     try:
         while True:
             data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            # Broadcast naar alle clients
-            for cid, client in connected_clients.items():
-                try:
-                    await client.send_json(message)
-                except:
-                    pass
+            await broadcast_to_clients({"type": "ping", "data": data})
     except:
-        connected_clients.pop(client_id, None)
+        active_connections.remove(websocket)
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "clients": len(connected_clients)}
-
-@app.get("/")
-async def root():
-    # Verander ar.html naar index.html
-    return FileResponse("../docs/index.html")
+@app.get("/api/distance")
+async def get_distance():
+    return {"distance": latest_distance}
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 3000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=3000, reload=False)

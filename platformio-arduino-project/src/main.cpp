@@ -9,38 +9,28 @@ float distanceCm;
 
 void setup() {
     pinMode(ledPin, OUTPUT);
-    Serial.begin(9600);
-
+    Serial.begin(115200);  // Verhoog naar 115200 voor sneller streamen
+    
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
 }
 
 void loop() {
-    //   digitalWrite(ledPin, HIGH);
-    //   Serial.println("LED:ON");
-    //   delay(1000);
-
-    //   digitalWrite(ledPin, LOW);
-    //   Serial.println("LED:OFF");
-    //   delay(1000);
-
     digitalWrite(trigPin, LOW);
     delayMicroseconds(2);
 
-    digitalWrite(trigPin,HIGH);
+    digitalWrite(trigPin, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin, LOW);
 
     duration = pulseIn(echoPin, HIGH, 20000);
 
-     if (duration == 0) {
-        Serial.println("Geen meting");
+    if (duration == 0) {
+        Serial.println(-1);  // Error waarde
     } else {
         distanceCm = duration * 0.0343 / 2;
-        Serial.print("Afstand: ");
-        Serial.print(distanceCm);
-        Serial.println(" cm");
+        Serial.println((int)distanceCm);  // Alleen het getal
     }
 
-    delay(500);
+    delay(100);  // 100ms interval
 }
