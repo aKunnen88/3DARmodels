@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Magic Leap Unity Scene Configurator</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+    :root {
+      --bg:       #0d0f1a;
+      --surface:  #13172a;
+      --border:   rgba(0,200,180,0.2);
+      --accent:   #00c8b4;
+      --accent2:  #6c63ff;
+      --text:     #e8eaf6;
+      --muted:    #8892b0;
+      --danger:   #e94560;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #0d0f1a 0%, #13172a 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 24px 40px;
+      display: flex; align-items: center; gap: 18px;
+    }
+    header .logo { font-size: 32px; }
+    header h1 { font-size: 20px; font-weight: 700; color: var(--accent); }
+    header p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* ── Layout ──────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 0;
+      min-height: calc(100vh - 84px);
+    }
+    .config-panel {
+      padding: 32px 40px;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+    }
+    .preview-panel {
+      padding: 32px 28px;
+      background: var(--surface);
+      display: flex; flex-direction: column; gap: 16px;
+    }
+
+    /* ── Section ─────────────────────────────────────────── */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 22px 24px;
+      margin-bottom: 20px;
+    }
+    .section h2 {
+      font-size: 13px; font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── Form ────────────────────────────────────────────── */
+    .field { margin-bottom: 14px; }
+    label  { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+    input[type=text], input[type=number], select {
+      width: 100%; padding: 9px 12px;
+      background: rgba(0,200,180,0.06);
+      border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text);
+      font-family: 'Inter', sans-serif; font-size: 14px;
+      outline: none; transition: border .2s;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* ── Colour swatch ───────────────────────────────────── */
+    .swatch-group { display: flex; gap: 10px; flex-wrap: wrap; }
+    .swatch {
+      width: 36px; height: 36px; border-radius: 50%;
+      cursor: pointer; border: 2px solid transparent;
+      transition: border .2s, transform .15s;
+    }
+    .swatch:hover, .swatch.selected { border-color: #fff; transform: scale(1.15); }
+
+    /* ── Toggle ──────────────────────────────────────────── */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .toggle-label { font-size: 13px; }
+    .toggle {
+      position: relative; width: 44px; height: 24px;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: #333; border-radius: 24px;
+      cursor: pointer; transition: background .2s;
+    }
+    .slider:before {
+      content: ''; position: absolute;
+      width: 18px; height: 18px;
+      border-radius: 50%; background: #fff;
+      top: 3px; left: 3px;
+      transition: transform .2s;
+    }
+    .toggle input:checked + .slider { background: var(--accent); }
+    .toggle input:checked + .slider:before { transform: translateX(20px); }
+
+    /* ── Buttons ─────────────────────────────────────────── */
+    .btn-row { display: flex; gap: 10px; margin-top: 24px; }
+    .btn {
+      padding: 11px 22px; border: none; border-radius: 10px;
+      font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: opacity .15s, transform .1s;
+      flex: 1; text-align: center;
+    }
+    .btn:hover { opacity: .85; }
+    .btn:active { transform: scale(.97); }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-secondary { background: var(--accent2); color: #fff; }
+    .btn-danger  { background: var(--danger); color: #fff; }
+
+    /* ── Preview area ────────────────────────────────────── */
+    .preview-title { font-size: 13px; color: var(--accent); letter-spacing: 1.2px; text-transform: uppercase; font-weight: 600; }
+
+    .ml-preview {
+      background: #08090f;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 28px 24px;
+      flex: 1;
+      display: flex; flex-direction: column; gap: 12px;
+      position: relative; overflow: hidden;
+    }
+    .ml-preview:before {
+      content: 'MAGIC LEAP 2 PREVIEW';
+      position: absolute; top: 10px; right: 14px;
+      font-size: 9px; color: var(--muted); letter-spacing: 1.5px;
+    }
+    .sim-sensor-label { font-size: 9px; color: var(--muted); letter-spacing: 1.5px; }
+    .sim-value {
+      font-size: 52px; font-weight: 900;
+      color: var(--accent);
+      text-shadow: 0 0 30px rgba(0,200,180,.5);
+      line-height: 1;
+    }
+    .sim-value span { font-size: 22px; font-weight: 400; }
+    .sim-bars { display: flex; gap: 4px; align-items: flex-end; height: 50px; }
+    .sim-bar {
+      flex: 1; border-radius: 3px 3px 0 0;
+      background: linear-gradient(to top, var(--accent), #6c63ff);
+      transition: height .3s;
+    }
+    .sim-status { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+    .sim-footer { margin-top: auto; border-top: 1px solid var(--border); padding-top: 10px; }
+    .sim-topic { font-family: monospace; font-size: 11px; color: var(--muted); }
+
+    /* ── JSON output ─────────────────────────────────────── */
+    .json-box {
+      background: #0a0b14;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      font-family: monospace; font-size: 11px;
+      color: #a8dadc;
+      max-height: 220px; overflow-y: auto;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .copy-btn {
+      margin-top: 8px; width: 100%;
+      padding: 8px; background: rgba(0,200,180,.12);
+      border: 1px solid var(--border); border-radius: 8px;
+      color: var(--accent); font-size: 12px; cursor: pointer;
+      transition: background .2s;
+    }
+    .copy-btn:hover { background: rgba(0,200,180,.22); }
+
+    /* ── Responsive ──────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .config-panel { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🥽</div>
+  <div>
+    <h1>Magic Leap Unity Scene Configurator</h1>
+    <p>Configure your Arduino sensor UI, then export the settings to Unity</p>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- ── Config Panel ─────────────────────────── -->
+  <div class="config-panel">
+
+    <!-- MQTT Settings -->
+    <div class="section">
+      <h2>📡 MQTT / Arduino Settings</h2>
+      <div class="row">
+        <div class="field">
+          <label>Broker Host</label>
+          <input type="text" id="brokerHost" value="broker.hivemq.com">
+        </div>
+        <div class="field">
+          <label>Port</label>
+          <input type="number" id="brokerPort" value="1883">
+        </div>
+      </div>
+      <div class="field">
+        <label>Topic</label>
+        <input type="text" id="topic" value="hospital/sensors/ultrasonic">
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Near Threshold (cm)</label>
+          <input type="number" id="nearThreshold" value="30">
+        </div>
+        <div class="field">
+          <label>Far Threshold (cm)</label>
+          <input type="number" id="farThreshold" value="100">
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel Appearance -->
+    <div class="section">
+      <h2>🎨 Panel Appearance</h2>
+      <div class="field">
+        <label>Panel Title</label>
+        <input type="text" id="panelTitle" value="ULTRASONIC SENSOR">
+      </div>
+      <div class="field">
+        <label>Unit label</label>
+        <input type="text" id="unitLabel" value="cm">
+      </div>
+      <div class="field">
+        <label>Accent Color</label>
+        <div class="swatch-group" id="colorSwatches">
+          <div class="swatch selected" style="background:#00c8b4" data-col="#00c8b4"></div>
+          <div class="swatch" style="background:#6c63ff" data-col="#6c63ff"></div>
+          <div class="swatch" style="background:#e94560" data-col="#e94560"></div>
+          <div class="swatch" style="background:#f4d03f" data-col="#f4d03f"></div>
+          <div class="swatch" style="background:#3498db" data-col="#3498db"></div>
+          <div class="swatch" style="background:#2ecc71" data-col="#2ecc71"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Panel Opacity (0.1 – 1.0)</label>
+        <input type="number" id="panelOpacity" value="0.9" min="0.1" max="1.0" step="0.05">
+      </div>
+    </div>
+
+    <!-- Magic Leap Behaviour -->
+    <div class="section">
+      <h2>🥽 Magic Leap Behaviour</h2>
+      <div class="row">
+        <div class="field">
+          <label>Panel Distance (m)</label>
+          <input type="number" id="panelDist" value="1.2" step="0.1" min="0.5" max="3.0">
+        </div>
+        <div class="field">
+          <label>Follow Speed</label>
+          <input type="number" id="followSpeed" value="5" step="0.5">
+        </div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Dim when not gazed at (Eye Tracking)</span>
+        <label class="toggle">
+          <input type="checkbox" id="eyeTracking" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Show history bar graph</span>
+        <label class="toggle">
+          <input type="checkbox" id="showBars" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Auto-reposition panel on scene start</span>
+        <label class="toggle">
+          <input type="checkbox" id="autoRepos" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Build Target -->
+    <div class="section">
+      <h2>⚙️ Build Target</h2>
+      <div class="field">
+        <label>Primary Target</label>
+        <select id="buildTarget">
+          <option value="MagicLeap">Magic Leap 2 (Android)</option>
+          <option value="Editor">Unity Editor Only</option>
+          <option value="Both">Both (conditional compile)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>MQTT Library</label>
+        <select id="mqttLib">
+          <option value="MQTTnet">MQTTnet (recommended)</option>
+          <option value="M2Mqtt">M2Mqtt (legacy)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="generateConfig()">⬇ Export Config JSON</button>
+      <button class="btn btn-secondary" onclick="copyJson()">📋 Copy JSON</button>
+    </div>
+  </div>
+
+  <!-- ── Preview Panel ─────────────────────────── -->
+  <div class="preview-panel">
+    <div class="preview-title">🖥 Live Preview</div>
+
+    <div class="ml-preview" id="mlPreview">
+      <div>
+        <div class="sim-sensor-label" id="sim-title-lbl">ULTRASONIC SENSOR</div>
+        <div class="sim-value" id="simValue">42.0 <span id="sim-unit">cm</span></div>
+      </div>
+      <div class="sim-bars" id="simBars"></div>
+      <div class="sim-status">
+        <div class="dot"></div>
+        <span>MQTT Connected — hospital/sensors/ultrasonic</span>
+      </div>
+      <div class="sim-footer">
+        <div class="sim-topic" id="simTopic">Topic: hospital/sensors/ultrasonic</div>
+      </div>
+    </div>
+
+    <div>
+      <div class="preview-title" style="margin-bottom:10px;">📄 Config JSON</div>
+      <div class="json-box" id="jsonOutput">Press "Export Config JSON" to generate...</div>
+      <button class="copy-btn" onclick="copyJson()">📋 Copy to Clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Animated simulated bars ─────────────────────────────────────────────
+  const barsEl = document.getElementById('simBars');
+  const simVal = document.getElementById('simValue');
+  let barData = Array.from({length: 12}, () => Math.random());
+
+  function buildBars() {
+    barsEl.innerHTML = '';
+    barData.forEach(v => {
+      const b = document.createElement('div');
+      b.className = 'sim-bar';
+      b.style.height = (v * 100) + '%';
+      barsEl.appendChild(b);
+    });
+  }
+  buildBars();
+
+  // Simulate live sensor data
+  let fakeVal = 42;
+  setInterval(() => {
+    fakeVal = Math.max(5, Math.min(200, fakeVal + (Math.random() - 0.5) * 8));
+    simVal.innerHTML = fakeVal.toFixed(1) + ' <span id="sim-unit">' + (document.getElementById('unitLabel').value || 'cm') + '</span>';
+    barData.shift(); barData.push(fakeVal / 200);
+    buildBars();
+    updatePreviewColors();
+  }, 800);
+
+  // Colour swatches
+  document.getElementById('colorSwatches').addEventListener('click', (e) => {
+    const sw = e.target.closest('.swatch');
+    if (!sw) return;
+    document.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+    sw.classList.add('selected');
+    updatePreviewColors();
+  });
+
+  function getSelectedColor() {
+    const sel = document.querySelector('.swatch.selected');
+    return sel ? sel.dataset.col : '#00c8b4';
+  }
+
+  function updatePreviewColors() {
+    const col = getSelectedColor();
+    document.getElementById('simValue').style.color = col;
+    document.getElementById('simValue').style.textShadow = `0 0 30px ${col}80`;
+    document.querySelectorAll('.sim-bar').forEach(b => {
+      b.style.background = `linear-gradient(to top, ${col}, #6c63ff)`;
+    });
+    document.getElementById('sim-title-lbl').textContent = document.getElementById('panelTitle').value || 'SENSOR';
+    document.getElementById('simTopic').textContent = 'Topic: ' + (document.getElementById('topic').value || '...');
+  }
+
+  // Live-update preview on input change
+  ['panelTitle','unitLabel','topic'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updatePreviewColors);
+  });
+
+  // ── Export config ──────────────────────────────────────────────────────
+  function generateConfig() {
+    const cfg = {
+      mqtt: {
+        brokerHost:   document.getElementById('brokerHost').value,
+        brokerPort:   +document.getElementById('brokerPort').value,
+        topic:        document.getElementById('topic').value,
+        nearThreshold: +document.getElementById('nearThreshold').value,
+        farThreshold:  +document.getElementById('farThreshold').value,
+      },
+      ui: {
+        panelTitle:   document.getElementById('panelTitle').value,
+        unitLabel:    document.getElementById('unitLabel').value,
+        accentColor:  getSelectedColor(),
+        panelOpacity: +document.getElementById('panelOpacity').value,
+        showHistoryBars: document.getElementById('showBars').checked,
+      },
+      magicleap: {
+        panelDistance: +document.getElementById('panelDist').value,
+        followSpeed:   +document.getElementById('followSpeed').value,
+        dimOnGazeAway: document.getElementById('eyeTracking').checked,
+        autoReposition: document.getElementById('autoRepos').checked,
+      },
+      build: {
+        target:   document.getElementById('buildTarget').value,
+        mqttLib:  document.getElementById('mqttLib').value,
+      }
+    };
+    document.getElementById('jsonOutput').textContent = JSON.stringify(cfg, null, 2);
+    return cfg;
+  }
+
+  function copyJson() {
+    const json = document.getElementById('jsonOutput').textContent;
+    if (json.startsWith('Press')) { generateConfig(); return; }
+    navigator.clipboard.writeText(json).then(() => {
+      const btn = document.querySelector('.copy-btn');
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => btn.textContent = '📋 Copy to Clipboard', 1500);
+    });
+  }
+
+  // Initial preview color sync
+  updatePreviewColors();
+</script>
+</body>
+</html>

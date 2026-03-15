@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+  <title>AR EHR Assistant</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Camera passthrough background ─────────────────────────── */
+    body {
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      background: #000;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+    }
+
+    #camera-bg {
+      position: fixed; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* mirror front cam; remove if using rear cam */
+      z-index: 0;
+    }
+
+    /* ── Overlay layer ──────────────────────────────────────────── */
+    #overlay {
+      position: fixed; inset: 0;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    /* ── Draggable AR Panel ─────────────────────────────────────── */
+    #ar-panel {
+      pointer-events: auto;
+      position: absolute;
+      top: 80px; left: 50%;
+      transform: translateX(-50%);
+      width: 320px;
+      background: rgba(10, 12, 40, 0.82);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(0, 255, 204, 0.35);
+      border-radius: 18px;
+      padding: 0;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5), 0 0 20px rgba(0,255,204,0.1);
+      user-select: none;
+    }
+
+    /* ── Drag handle ────────────────────────────────────────────── */
+    #drag-handle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: rgba(15, 52, 96, 0.9);
+      border-radius: 18px 18px 0 0;
+      cursor: grab;
+      touch-action: none; /* crucial for drag on mobile */
+    }
+    #drag-handle:active { cursor: grabbing; }
+    #drag-handle span { font-size: 13px; color: #00ffcc; font-weight: bold; letter-spacing: 1px; }
+    #drag-handle .drag-icon { font-size: 20px; }
+
+    /* ── Sensor section ─────────────────────────────────────────── */
+    #sensor-section {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid rgba(0,255,204,0.15);
+    }
+    #sensor-label { font-size: 11px; color: #888; letter-spacing: 1px; margin-bottom: 4px; }
+    #sensor-value {
+      font-size: 42px; font-weight: 900;
+      color: #00ffcc;
+      text-shadow: 0 0 20px rgba(0,255,204,0.5);
+    }
+    #mqtt-status { font-size: 11px; color: #ff4444; margin-top: 4px; }
+
+    /* ── Chat section ───────────────────────────────────────────── */
+    #chat-section { padding: 12px 16px; }
+    #chat-label { font-size: 11px; color: #888; letter-spacing: 1px; margin-bottom: 8px; }
+    #chat-history {
+      height: 140px;
+      overflow-y: auto;
+      font-size: 13px;
+      color: #e0e0e0;
+      line-height: 1.5;
+      padding-right: 4px;
+    }
+    #chat-history::-webkit-scrollbar { width: 3px; }
+    #chat-history::-webkit-scrollbar-thumb { background: rgba(0,255,204,0.3); border-radius: 2px; }
+    .msg-user { color: #7ecaff; margin-bottom: 6px; }
+    .msg-ai   { color: #e0e0e0; margin-bottom: 10px; }
+    .msg-ai.thinking { color: #888; font-style: italic; }
+
+    /* ── Input row ──────────────────────────────────────────────── */
+    #input-row {
+      display: flex; gap: 8px;
+      padding: 10px 16px 14px;
+      pointer-events: auto;
+    }
+    #chat-input {
+      flex: 1; padding: 10px 12px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(0,255,204,0.25);
+      border-radius: 10px; color: #fff;
+      font-size: 15px; outline: none;
+    }
+    #chat-input::placeholder { color: rgba(255,255,255,0.4); }
+    .btn {
+      padding: 10px 14px; border: none; border-radius: 10px;
+      font-size: 16px; font-weight: bold; cursor: pointer;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+      min-width: 46px; min-height: 46px;
+    }
+    #send-btn { background: #e94560; color: #fff; }
+    #mic-btn  { background: rgba(15,52,96,0.9); color: #fff; border: 1px solid rgba(0,255,204,0.3); }
+    #mic-btn.active { background: #ff4444; }
+
+    /* ── Resize grip ────────────────────────────────────────────── */
+    #resize-handle {
+      position: absolute;
+      bottom: 6px; right: 10px;
+      font-size: 20px; color: rgba(0,255,204,0.5);
+      cursor: se-resize;
+      touch-action: none;
+      line-height: 1;
+      padding: 4px;
+      user-select: none;
+    }
+    #resize-handle:hover { color: #00ffcc; }
+
+    /* ── Camera permission button ──────────────────────────────── */
+    #cam-btn-wrap {
+      position: fixed; top: 12px; right: 12px; z-index: 20;
+    }
+    #cam-btn {
+      padding: 8px 14px; border-radius: 20px; border: none;
+      background: rgba(0,255,204,0.85); color: #000;
+      font-weight: bold; font-size: 13px; cursor: pointer;
+      touch-action: manipulation;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Live camera feed as background -->
+  <video id="camera-bg" autoplay playsinline muted></video>
+
+  <!-- Start camera button -->
+  <div id="cam-btn-wrap">
+    <button id="cam-btn">📷 Start Camera AR</button>
+  </div>
+
+  <!-- Overlay with draggable panel -->
+  <div id="overlay">
+    <div id="ar-panel">
+
+      <!-- Drag handle -->
+      <div id="drag-handle">
+        <span>☰ MOVE PANEL</span>
+        <span class="drag-icon">✋</span>
+      </div>
+
+      <!-- Sensor Data -->
+      <div id="sensor-section">
+        <div id="sensor-label">ULTRASONIC SENSOR (LIVE)</div>
+        <div id="sensor-value">-- cm</div>
+        <div id="mqtt-status">🔴 MQTT Offline</div>
+      </div>
+
+      <!-- Chat Output -->
+      <div id="chat-section">
+        <div id="chat-label">AI ASSISTANT — Qwen 3.5 (Arduino Expert)</div>
+        <div id="chat-history">
+          <div class="msg-ai">Typ of spreek een vraag in...</div>
+        </div>
+      </div>
+
+      <!-- Input -->
+      <div id="input-row">
+        <input id="chat-input" type="text" placeholder="Ask the EHR Assistant..." autocomplete="off">
+        <button class="btn" id="mic-btn">🎤</button>
+        <button class="btn" id="send-btn">Send</button>
+      </div>
+
+      <!-- Resize grip bottom-right -->
+      <div id="resize-handle" title="Resize panel">⤡</div>
+
+    </div>
+  </div>
+
+  <script>
+  // ── Camera passthrough ───────────────────────────────────────
+  const video = document.getElementById('camera-bg');
+  const camBtn = document.getElementById('cam-btn');
+
+  async function startCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },  // rear camera
+        audio: false
+      });
+      video.srcObject = stream;
+      video.style.transform = 'none';  // rear cam: no mirror
+      camBtn.textContent = '✅ Camera Live';
+      camBtn.style.background = 'rgba(0,255,100,0.85)';
+      setTimeout(() => camBtn.style.display = 'none', 2000);
+    } catch (e) {
+      // fallback to front cam
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        camBtn.textContent = '✅ Front Camera';
+        setTimeout(() => camBtn.style.display = 'none', 2000);
+      } catch (e2) {
+        camBtn.textContent = '❌ Camera Denied';
+      }
+    }
+  }
+
+  camBtn.addEventListener('click', startCamera);
+  camBtn.addEventListener('touchend', (e) => { e.preventDefault(); startCamera(); });
+  // Start camera automatically
+  startCamera();
+
+  // ── Draggable panel ──────────────────────────────────────────
+  const panel = document.getElementById('ar-panel');
+  const handle = document.getElementById('drag-handle');
+  let dragging = false;
+  let startX, startY, origLeft, origTop;
+
+  function dragStart(cx, cy) {
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    // Switch from transform centering to absolute positions first
+    panel.style.left = rect.left + 'px';
+    panel.style.top  = rect.top  + 'px';
+    panel.style.transform = 'none';
+    startX = cx; startY = cy;
+    origLeft = rect.left; origTop = rect.top;
+  }
+  function dragMove(cx, cy) {
+    if (!dragging) return;
+    panel.style.left = (origLeft + cx - startX) + 'px';
+    panel.style.top  = (origTop  + cy - startY) + 'px';
+  }
+  function dragEnd() { dragging = false; }
+
+  handle.addEventListener('mousedown',  (e) => dragStart(e.clientX, e.clientY));
+  document.addEventListener('mousemove', (e) => dragMove(e.clientX, e.clientY));
+  document.addEventListener('mouseup',   dragEnd);
+
+  handle.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    dragStart(t.clientX, t.clientY);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!dragging) return;
+    const t = e.touches[0];
+    dragMove(t.clientX, t.clientY);
+  }, { passive: true });
+  document.addEventListener('touchend', dragEnd, { passive: true });
+
+  // ── Resize panel ─────────────────────────────────────────────
+  const resizeHandle = document.getElementById('resize-handle');
+  let resizing = false;
+  let resizeStartX, resizeStartY, startW, startH;
+  const MIN_W = 220, MAX_W = 520, MIN_H = 300, MAX_H = 720;
+
+  function resizeStart(cx, cy) {
+    resizing = true;
+    resizeStartX = cx; resizeStartY = cy;
+    startW = panel.offsetWidth;
+    startH = panel.offsetHeight;
+    // Fix position so it doesn't shift during resize
+    const rect = panel.getBoundingClientRect();
+    panel.style.left = rect.left + 'px';
+    panel.style.top  = rect.top  + 'px';
+    panel.style.transform = 'none';
+    panel.style.width  = startW + 'px';
+    panel.style.height = startH + 'px';
+  }
+  function resizeMove(cx, cy) {
+    if (!resizing) return;
+    const newW = Math.min(MAX_W, Math.max(MIN_W, startW + (cx - resizeStartX)));
+    const newH = Math.min(MAX_H, Math.max(MIN_H, startH + (cy - resizeStartY)));
+    panel.style.width  = newW + 'px';
+    panel.style.height = newH + 'px';
+    // Make chat history fill the extra space
+    const chatH = newH - 300;
+    document.getElementById('chat-history').style.height = Math.max(80, chatH) + 'px';
+  }
+  function resizeEnd() { resizing = false; }
+
+  resizeHandle.addEventListener('mousedown', (e) => { e.stopPropagation(); resizeStart(e.clientX, e.clientY); });
+  document.addEventListener('mousemove', (e) => resizeMove(e.clientX, e.clientY));
+  document.addEventListener('mouseup', resizeEnd);
+
+  resizeHandle.addEventListener('touchstart', (e) => {
+    e.stopPropagation();
+    const t = e.touches[0];
+    resizeStart(t.clientX, t.clientY);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!resizing) return;
+    const t = e.touches[0];
+    resizeMove(t.clientX, t.clientY);
+  }, { passive: true });
+  document.addEventListener('touchend', resizeEnd, { passive: true });
+
+  // ── MQTT ─────────────────────────────────────────────────────
+  let sensorValue = 'Unknown';
+  const mqttClient = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+  mqttClient.on('connect', () => {
+    document.getElementById('mqtt-status').textContent = '🟢 MQTT Connected';
+    document.getElementById('mqtt-status').style.color = '#0f0';
+    mqttClient.subscribe('hospital/sensors/ultrasonic');
+  });
+  mqttClient.on('message', (t, msg) => {
+    const v = parseFloat(msg.toString());
+    if (!isNaN(v)) {
+      sensorValue = v;
+      document.getElementById('sensor-value').textContent = v.toFixed(1) + ' cm';
+    }
+  });
+
+  // ── Chat ─────────────────────────────────────────────────────
+  const chatHistory = document.getElementById('chat-history');
+
+  function addMsg(cls, text) {
+    const d = document.createElement('div');
+    d.className = 'msg-' + cls;
+    d.textContent = text;
+    chatHistory.appendChild(d);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+    return d;
+  }
+
+  async function sendToLLM(query) {
+    if (!query.trim()) return;
+    addMsg('user', 'You: ' + query);
+    const thinking = addMsg('ai thinking', 'AI: ⏳ Thinking...');
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'qwen/qwen3.5-122b-a10b',
+          messages: [
+            { role: 'system', content: `You are an Arduino & Ultrasonic Sensor expert assistant in an AR environment. Current sensor reading: ${sensorValue} cm. Be concise and practical.` },
+            { role: 'user',   content: query }
+          ],
+          max_tokens: 300
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      const reply = data.choices?.[0]?.message?.content || 'No response.';
+      thinking.className = 'msg-ai';
+      thinking.textContent = 'AI: ' + reply;
+    } catch (e) {
+      thinking.className = 'msg-ai';
+      thinking.textContent = '⚠️ ' + e.message;
+    }
+
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  // ── Send button ──────────────────────────────────────────────
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('send-btn');
+
+  function doSend() {
+    const q = input.value.trim();
+    if (q) { sendToLLM(q); input.value = ''; }
+  }
+
+  sendBtn.addEventListener('click', doSend);
+  sendBtn.addEventListener('touchend', (e) => { e.preventDefault(); doSend(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSend(); });
+
+  // ── Microphone ───────────────────────────────────────────────
+  const micBtn = document.getElementById('mic-btn');
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    const rec = new SR();
+    rec.lang = 'nl-NL';
+    rec.onstart  = () => micBtn.classList.add('active');
+    rec.onend    = () => micBtn.classList.remove('active');
+    rec.onerror  = (e) => { micBtn.classList.remove('active'); addMsg('ai', '⚠️ Mic: ' + e.error); };
+    rec.onresult = (e) => { const t = e.results[0][0].transcript; input.value = t; sendToLLM(t); };
+
+    function startMic() { try { rec.start(); } catch(e) {} }
+    micBtn.addEventListener('click', startMic);
+    micBtn.addEventListener('touchend', (e) => { e.preventDefault(); startMic(); });
+  } else {
+    micBtn.style.display = 'none';
+  }
+  </script>
+</body>
+</html>

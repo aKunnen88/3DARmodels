@@ -1,0 +1,37 @@
+# DeepSeek API Integration Walkthrough
+
+I have integrated the DeepSeek API with environment variables and set up ignore files as requested.
+
+## Changes Made
+
+### Environment Configuration
+- **[.env.example](file:///c:/Projects/BachelorProef/LLMIntegration/.env.example)**: Added a template for the `DEEPSEEK_API_KEY`.
+- **[.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env)**: Created the actual environment file where you can securely store your API key.
+- **[.gitignore](file:///c:/Projects/BachelorProef/.gitignore)**: Verified that [.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env) is ignored by Git to prevent leaking credentials.
+
+### API Integration
+- **[deepseekAPI.py](file:///c:/Projects/BachelorProef/LLMIntegration/deepseekAPI.py)**: Modified the script to load environment variables using `python-dotenv`. It now retrieves the `DEEPSEEK_API_KEY` from the [.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env) file instead of using a hardcoded placeholder.
+
+### Antigravity Configuration
+- **[.antigravityignore](file:///c:/Projects/BachelorProef/.antigravityignore)**: Created this file to exclude sensitive or unnecessary files (like [.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env)) from being processed.
+
+## Verification
+- Verified that the `python-dotenv` and `openai` libraries are available.
+- The script [deepseekAPI.py](file:///c:/Projects/BachelorProef/LLMIntegration/deepseekAPI.py) now attempts to load the key from the environment.
+
+> [!IMPORTANT]
+> Please add your actual DeepSeek API key to the [.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env) file in [c:\Projects\BachelorProef\LLMIntegration\.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env) for the script to work correctly.
+
+## How to Test
+1. **Get your API Key**: Make sure you have a valid API key from NVIDIA (since the script uses the NVIDIA endpoint).
+2. **Add to [.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env)**: Paste your key into [LLMIntegration/.env](file:///c:/Projects/BachelorProef/LLMIntegration/.env).
+3. **Run the CLI Chat**:
+   ```powershell
+   python c:\Projects\BachelorProef\LLMIntegration\deepseekAPI.py
+   ```
+   This will start an interactive chat in your terminal that remembers your conversation history.
+4. **Run the Web UI**:
+   ```powershell
+   python -m streamlit run c:\Projects\BachelorProef\LLMIntegration\chat_ui.py
+   ```
+   This will open a modern, premium chat interface in your browser.
