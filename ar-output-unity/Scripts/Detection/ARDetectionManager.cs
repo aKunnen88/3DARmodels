@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.XR.MagicLeap;
 using ARExplorer.Data;
+using Debug = UnityEngine.Debug;
 
 namespace ARExplorer.Detection
 {
@@ -83,11 +84,18 @@ namespace ARExplorer.Detection
 
         private async void InitMLCamera()
         {
+#if UNITY_EDITOR
+            Debug.Log("[ARDetection] Editor mode — ML Camera skipped.");
+            return;
+#endif
             // Request camera permission
             if (!MLPermissions.CheckPermission(MLPermission.Camera).IsOk)
             {
                 Debug.Log("[ARDetection] Requesting camera permission...");
-                MLPermissions.RequestPermission(MLPermission.Camera, OnPermissionGranted, OnPermissionDenied);
+                var permCallbacks = new MLPermissions.Callbacks();
+                permCallbacks.OnPermissionGranted += OnPermissionGranted;
+                permCallbacks.OnPermissionDenied += OnPermissionDenied;
+                MLPermissions.RequestPermission(MLPermission.Camera, permCallbacks);
                 return;
             }
 
@@ -136,7 +144,7 @@ namespace ARExplorer.Detection
                 capabilities[0], MLCamera.OutputFormat.RGBA_8888
             );
 
-            await _mlCamera.PrepareCapture(_captureConfig);
+            _mlCamera.PrepareCapture(_captureConfig, out MLCamera.Metadata _);
             await _mlCamera.PreCaptureAEAWBAsync();
 
             _mlCamera.OnRawVideoFrameAvailable += OnCameraFrame;

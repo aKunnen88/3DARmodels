@@ -106,11 +106,7 @@ namespace ARExplorer.Detection
         {
             _onTap?.Invoke();
 
-            // Haptic feedback
-            if (MLDevice.IsReady)
-            {
-                // Optional: trigger haptic buzz on controller
-            }
+            // Optional haptic feedback (MLDevice removed in current ML SDK)
         }
 
         public void FadeOutAndDestroy()
@@ -122,13 +118,3 @@ namespace ARExplorer.Detection
     }
 }
 
-// Stub for MLDevice if not available during compilation outside Unity
-#if !UNITY_EDITOR && !PLATFORM_LUMIN
-namespace UnityEngine.XR.MagicLeap
-{
-    public static class MLDevice
-    {
-        public static bool IsReady => false;
-    }
-}
-#endif

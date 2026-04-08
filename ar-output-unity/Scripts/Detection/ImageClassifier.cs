@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using UnityEngine;
 using Unity.Sentis;
+using Debug = UnityEngine.Debug;
 
 namespace ARExplorer.Detection
 {
@@ -79,9 +80,11 @@ namespace ARExplorer.Detection
 
             _worker.Schedule(input);
 
-            // Wait for GPU to finish
+            // Wait one frame then read back (Sentis 2.x: ReadbackAndCloneAsync removed;
+            // DownloadToArray implicitly syncs with the GPU)
+            yield return null;
+
             var outputTensor = _worker.PeekOutput() as Tensor<float>;
-            yield return outputTensor.ReadbackAndCloneAsync();
 
             // Find top prediction
             float maxProb = 0f;

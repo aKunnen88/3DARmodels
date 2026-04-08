@@ -1,4 +1,4 @@
-﻿# AR Explorer - Unity / Magic Leap 2
+# AR Explorer - Unity / Magic Leap 2
 
 This is the Unity port of the AR Explorer, targeting **Magic Leap 2** and **Unity 2022.3 LTS**.
 It uses a Teachable Machine model converted to ONNX to detect Arduino components.
@@ -18,16 +18,16 @@ Add following packages via Package Manager:
 * **Player Settings > Android**: Min API 29, IL2CPP, x86_64.
 
 ### 4. Convert Teachable Machine Model to ONNX
-`ash
+```powershell
 pip install tensorflowjs tensorflow tf2onnx onnx
-mkdir tm_model && cd tm_model
+mkdir tm_model; cd tm_model
 tensorflowjs_converter --input_format=tfjs_layers_model --output_format=saved_model https://teachablemachine.withgoogle.com/models/5HBj-fn_i/model.json ./saved_model
 python -m tf2onnx.convert --saved-model ./saved_model --output ar_explorer.onnx --opset 13
-`
-Copy r_explorer.onnx into Assets/Models/ in Unity.
+```
+Copy ar_explorer.onnx into Assets/Models/ in Unity.
 
 ### 5. Import Scripts
-Copy the Scripts folder from r-output-unity into your Unity Assets folder.
+Copy the Scripts folder from ar-output-unity into your Unity Assets folder.
 
 ### 6. Generate Component Database
 1. Right-click > **Create > AR Explorer > Component Database**. Name it ArduinoComponents.
