@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Arduino AR Explorer</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+
+<body>
+
+  <!-- Camera feed -->
+  <video id="camera" autoplay playsinline muted></video>
+  <canvas id="overlay"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div id="hud-title">
+      <span class="dot"></span>
+      AR Explorer
+    </div>
+    <div id="hud-status">Point at an Arduino component</div>
+  </div>
+
+  <!-- Scanning ring (center) -->
+  <div id="scan-ring">
+    <div class="ring r1"></div>
+    <div class="ring r2"></div>
+    <div class="crosshair"></div>
+  </div>
+
+  <!-- AR Marker bubbles container -->
+  <div id="markers-container"></div>
+
+  <!-- Detail panel -->
+  <div id="detail-panel" class="hidden">
+    <div id="panel-bg-blur"></div>
+    <div id="panel-content">
+      <button id="close-panel">✕</button>
+      <div id="panel-icon"></div>
+      <h2 id="panel-title"></h2>
+      <div id="panel-badge"></div>
+      <p id="panel-desc"></p>
+      <div id="panel-specs"></div>
+      <div id="panel-tip"></div>
+    </div>
+  </div>
+
+  <!-- Loading screen -->
+  <div id="loading-screen">
+    <div class="loader-content">
+      <div class="loader-ring"></div>
+      <div class="loader-text">Initializing AR<span class="dots">...</span></div>
+      <div class="loader-sub">Loading object detection model</div>
+    </div>
+  </div>
+
+
+  <script src="js/components-db.js"></script>
+  <script src="js/ar-engine.js"></script>
+</body>
+</html>
