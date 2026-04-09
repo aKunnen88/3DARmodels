@@ -5,11 +5,9 @@ using ARExplorer.Data;
 namespace ARExplorer.Detection
 {
     /// <summary>
-    /// Full-screen detail panel that appears when the user taps/selects
-    /// an AR marker bubble. Mirrors the web version's #detail-panel.
-    /// 
-    /// This should be on a World-Space Canvas or head-locked UI Canvas
-    /// positioned in front of the user.
+    /// Head-locked detail panel for Magic Leap 2.
+    /// Auto-positions in front of the user when shown.
+    /// No tap required — shows automatically on detection.
     /// </summary>
     public class DetailPanel : MonoBehaviour
     {
@@ -28,40 +26,90 @@ namespace ARExplorer.Detection
         public CanvasGroup canvasGroup;
         public GameObject panelRoot;
 
+        [Header("Head-lock Settings")]
+        [Tooltip("Distance from the camera to place the panel.")]
+        public float viewDistance = 0.8f;
+        [Tooltip("How far below center (in meters) to offset the panel.")]
+        public float verticalOffset = -0.05f;
+        [Tooltip("Smooth follow speed for head-locking.")]
+        public float followSpeed = 3f;
+        [Tooltip("Angular deadzone — panel only moves when camera rotates beyond this many degrees.")]
+        public float angleTolerance = 15f;
+
         [Header("Animation")]
         public float fadeInDuration = 0.25f;
         public float fadeOutDuration = 0.2f;
 
         private bool _visible;
+        private bool _headLocking;
 
         void Start()
         {
             if (closeButton != null)
                 closeButton.onClick.AddListener(Hide);
 
-            panelRoot?.SetActive(false);
+            if (panelRoot != null) panelRoot.SetActive(false);
+        }
+
+        void Update()
+        {
+            if (!_visible || !_headLocking) return;
+
+            Camera cam = Camera.main;
+            if (cam == null) return;
+
+            Transform ct = cam.transform;
+
+            // Target position: in front of camera, slightly below center
+            Vector3 targetPos = ct.position
+                + ct.forward * viewDistance
+                + Vector3.up * verticalOffset;
+
+            // Only reposition if we've rotated enough (deadzone to reduce jitter)
+            float angle = Vector3.Angle(
+                transform.position - ct.position,
+                ct.forward
+            );
+
+            if (angle > angleTolerance)
+            {
+                transform.position = Vector3.Lerp(
+                    transform.position, targetPos,
+                    Time.deltaTime * followSpeed
+                );
+            }
+
+            // Always face the camera
+            transform.rotation = Quaternion.Lerp(
+                transform.rotation,
+                Quaternion.LookRotation(transform.position - ct.position),
+                Time.deltaTime * followSpeed
+            );
         }
 
         /// <summary>
         /// Show the detail panel with the given component's data.
+        /// Automatically snaps to front of camera.
         /// </summary>
         public void Show(ComponentData comp)
         {
             if (comp == null) return;
 
-            // Populate fields
-            if (iconText) iconText.text = comp.icon;
-            if (titleText) titleText.text = comp.fullName;
-            if (badgeText) badgeText.text = comp.badge;
+            // Populate text fields
+            if (iconText)        iconText.text        = comp.icon;
+            if (titleText)       titleText.text       = comp.fullName;
+            if (badgeText)       badgeText.text       = comp.badge;
             if (badgeBackground) badgeBackground.color = comp.badgeColor;
             if (descriptionText) descriptionText.text = comp.description;
-            if (tipText) tipText.text = comp.proTip;
+            if (tipText)         tipText.text         = comp.proTip;
 
-            // Populate specs
             PopulateSpecs(comp.specs);
 
-            // Show with fade-in
-            panelRoot?.SetActive(true);
+            // Snap to camera before showing so it doesn't fly in from nowhere
+            SnapToCamera();
+
+            if (panelRoot != null) panelRoot.SetActive(true);
+
             if (canvasGroup != null)
             {
                 canvasGroup.alpha = 0f;
@@ -69,6 +117,7 @@ namespace ARExplorer.Detection
             }
 
             _visible = true;
+            _headLocking = true;
         }
 
         /// <summary>
@@ -77,27 +126,42 @@ namespace ARExplorer.Detection
         public void Hide()
         {
             if (!_visible) return;
+            _visible = false;
+            _headLocking = false;
 
             if (canvasGroup != null)
             {
                 LeanTween.alphaCanvas(canvasGroup, 0f, fadeOutDuration).setOnComplete(() =>
                 {
-                    panelRoot?.SetActive(false);
+                    if (panelRoot != null) panelRoot.SetActive(false);
                 });
             }
             else
             {
-                panelRoot?.SetActive(false);
+                if (panelRoot != null) panelRoot.SetActive(false);
             }
+        }
 
-            _visible = false;
+        // ── Internal ──────────────────────────────────────────────
+
+        private void SnapToCamera()
+        {
+            Camera cam = Camera.main;
+            if (cam == null) return;
+
+            transform.position = cam.transform.position
+                + cam.transform.forward * viewDistance
+                + Vector3.up * verticalOffset;
+
+            transform.rotation = Quaternion.LookRotation(
+                transform.position - cam.transform.position
+            );
         }
 
         private void PopulateSpecs(SpecEntry[] specs)
         {
             if (specsContainer == null) return;
 
-            // Clear existing rows
             foreach (Transform child in specsContainer)
                 Destroy(child.gameObject);
 
@@ -109,8 +173,6 @@ namespace ARExplorer.Detection
 
                 var row = Instantiate(specRowPrefab, specsContainer);
                 var texts = row.GetComponentsInChildren<TextMeshProUGUI>();
-
-                // Expect 2 TMP texts: [0] = label, [1] = value
                 if (texts.Length >= 2)
                 {
                     texts[0].text = spec.label;

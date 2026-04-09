@@ -27,18 +27,27 @@ namespace ARExplorer.Detection
         [Tooltip("Seconds before stale markers auto-clear.")]
         public float staleTimeout = 0.8f;
 
+        [Tooltip("Seconds a class must be detected continuously before the detail panel opens.")]
+        public float detailShowDelay = 1.0f;
+
         // ── State ──────────────────────────────────────────────────
         private float _lastDetectTime;
         private float _lastRefreshTime;
         private ARMarkerBubble _activeMarker;
         private string _activeClassKey;
         private ComponentData _activeComponent;
+        private float _classFirstSeenTime;
+        private bool _detailShown;
 
         // ── Magic Leap Camera ──────────────────────────────────────
         private MLCamera _mlCamera;
         private MLCamera.CaptureConfig _captureConfig;
         private Texture2D _cameraTexture;
         private bool _cameraReady;
+        private byte[] _pendingFrameData;
+        private int _pendingWidth;
+        private int _pendingHeight;
+        private bool _frameReady;
 
         // ═══════════════════════════════════════════════════════════
         //  Lifecycle
@@ -46,6 +55,8 @@ namespace ARExplorer.Detection
 
         void Start()
         {
+            Debug.Log("[ARDetection] Start() called.");
+            if (classifier == null) { Debug.LogError("[ARDetection] Classifier is NULL - check Inspector!"); return; }
             classifier.OnClassification += HandleClassification;
             detailPanel?.Hide();
             InitMLCamera();
@@ -54,6 +65,26 @@ namespace ARExplorer.Detection
         void Update()
         {
             if (!_cameraReady) return;
+
+            // Apply pending camera frame on main thread
+            if (_frameReady)
+            {
+                byte[] data;
+                int w, h;
+                lock (this)
+                {
+                    data = _pendingFrameData;
+                    w = _pendingWidth;
+                    h = _pendingHeight;
+                    _frameReady = false;
+                }
+
+                if (_cameraTexture == null || _cameraTexture.width != w || _cameraTexture.height != h)
+                    _cameraTexture = new Texture2D(w, h, TextureFormat.RGBA32, false);
+
+                _cameraTexture.LoadRawTextureData(data);
+                _cameraTexture.Apply();
+            }
 
             float now = Time.time;
 
@@ -65,10 +96,19 @@ namespace ARExplorer.Detection
                     classifier.Classify(_cameraTexture);
             }
 
-            // Auto-clear stale markers
+            // Auto-clear stale markers and hide detail panel
             if (_activeMarker != null && now - _lastRefreshTime > staleTimeout)
             {
+                detailPanel?.Hide();
                 ClearMarker();
+            }
+
+            // Auto-show detail panel after stable detection
+            if (_activeComponent != null && !_detailShown &&
+                now - _classFirstSeenTime >= detailShowDelay)
+            {
+                detailPanel?.Show(_activeComponent);
+                _detailShown = true;
             }
         }
 
@@ -128,7 +168,7 @@ namespace ARExplorer.Detection
 
             // Configure capture: 640x480 is sufficient for classification
             MLCamera.StreamCapability[] capabilities = MLCamera.GetImageStreamCapabilitiesForCamera(
-                _mlCamera, MLCamera.CaptureType.Image
+                _mlCamera, MLCamera.CaptureType.Video
             );
 
             if (capabilities.Length == 0)
@@ -154,6 +194,7 @@ namespace ARExplorer.Detection
             Debug.Log("[ARDetection] ML Camera started.");
         }
 
+        // Called on background thread — copy bytes only, apply on main thread in Update
         private void OnCameraFrame(MLCamera.CameraOutput output, MLCamera.ResultExtras extras,
             MLCamera.Metadata metadata)
         {
@@ -162,14 +203,25 @@ namespace ARExplorer.Detection
             var plane = output.Planes[0];
             int width = (int)plane.Width;
             int height = (int)plane.Height;
+            uint stride = plane.Stride > 0 ? plane.Stride : (uint)(width * 4);
 
-            if (_cameraTexture == null || _cameraTexture.width != width || _cameraTexture.height != height)
+            // Copy row by row to strip stride padding
+            int rowBytes = width * 4;
+            byte[] tightly = new byte[width * height * 4];
+            for (int row = 0; row < height; row++)
             {
-                _cameraTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                int src = (int)(row * stride);
+                int dst = row * rowBytes;
+                System.Buffer.BlockCopy(plane.Data, src, tightly, dst, rowBytes);
             }
 
-            _cameraTexture.LoadRawTextureData(plane.Data);
-            _cameraTexture.Apply();
+            lock (this)
+            {
+                _pendingFrameData = tightly;
+                _pendingWidth = width;
+                _pendingHeight = height;
+                _frameReady = true;
+            }
         }
 
         private void StopMLCamera()
@@ -196,6 +248,7 @@ namespace ARExplorer.Detection
             }
 
             string classKey = result.className.ToLower().Replace(" ", "_");
+            if (componentDatabase == null) { Debug.LogError("[ARDetection] componentDatabase is NULL!"); return; }
             ComponentData comp = componentDatabase.Resolve(result.className);
 
             if (comp == null) return;
@@ -205,10 +258,13 @@ namespace ARExplorer.Detection
             // If class changed, destroy old marker and create new one
             if (_activeClassKey != classKey)
             {
+                detailPanel?.Hide();
                 ClearMarker();
                 SpawnMarker(comp);
                 _activeClassKey = classKey;
                 _activeComponent = comp;
+                _classFirstSeenTime = Time.time;
+                _detailShown = false;
             }
         }
 
@@ -225,7 +281,7 @@ namespace ARExplorer.Detection
             Vector3 pos = cam.position + cam.forward * 1.5f;
 
             _activeMarker = Instantiate(markerBubblePrefab, pos, Quaternion.identity, markerParent);
-            _activeMarker.Initialize(comp, () => ShowDetail(comp));
+            _activeMarker.Initialize(comp, () => detailPanel?.Show(comp));
         }
 
         private void ClearMarker()
@@ -237,11 +293,7 @@ namespace ARExplorer.Detection
             }
             _activeClassKey = null;
             _activeComponent = null;
-        }
-
-        private void ShowDetail(ComponentData comp)
-        {
-            detailPanel?.Show(comp);
+            _detailShown = false;
         }
     }
 }

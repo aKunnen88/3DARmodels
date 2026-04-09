@@ -1,0 +1,6 @@
+train: c:/Projects/BachelorProef/ar-output-YOLO/dataset/train/images
+val: c:/Projects/BachelorProef/ar-output-YOLO/dataset/valid/images
+test: c:/Projects/BachelorProef/ar-output-YOLO/dataset/test/images
+
+nc: 3
+names: ['BreadBoard', 'REDLed', 'UltrasoneSensor']
