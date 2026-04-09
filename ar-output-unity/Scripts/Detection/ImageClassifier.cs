@@ -144,10 +144,11 @@ namespace ARExplorer.Detection
 
             ClassificationResult result;
 
-            // Reject edge false positives — center must be within inner 70% of image
+            // Reject detections whose centre hugs the very border (likely sensor noise)
+            // Using 5% margin so side-of-view objects are still detected.
             float normCx = bestCx / inputSize;
             float normCy = bestCy / inputSize;
-            bool edgeDetection = normCx < 0.15f || normCx > 0.85f || normCy < 0.15f || normCy > 0.85f;
+            bool edgeDetection = normCx < 0.05f || normCx > 0.95f || normCy < 0.05f || normCy > 0.95f;
 
             if (bestClass < 0 || bestConf < confidenceThreshold || edgeDetection)
             {

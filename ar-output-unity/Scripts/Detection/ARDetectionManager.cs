@@ -7,9 +7,11 @@ namespace ARExplorer.Detection
 {
     /// <summary>
     /// Main orchestrator: captures Magic Leap camera frames, feeds them
-    /// to the classifier, and manages AR markers + detail panel.
+    /// to the classifier, and manages AR info cards.
     ///
     /// Attach this to an empty GameObject in your scene.
+    /// ARMarkerBubble handles both the collapsed pill AND the expanded detail
+    /// card — no separate DetailPanel GameObject needed.
     /// </summary>
     public class ARDetectionManager : MonoBehaviour
     {
@@ -17,27 +19,29 @@ namespace ARExplorer.Detection
         public ImageClassifier classifier;
         public ComponentDatabase componentDatabase;
         public ARMarkerBubble markerBubblePrefab;
-        public DetailPanel detailPanel;
         public Transform markerParent;
 
         [Header("Detection Settings")]
         [Tooltip("Seconds between inference calls.")]
-        public float detectionInterval = 0.3f;
+        public float detectionInterval = 0.25f;
 
-        [Tooltip("Seconds before stale markers auto-clear.")]
-        public float staleTimeout = 0.8f;
+        [Tooltip("Seconds before a stale marker is cleared (raise this if cards flicker).")]
+        public float staleTimeout = 1.5f;
 
-        [Tooltip("Seconds a class must be detected continuously before the detail panel opens.")]
-        public float detailShowDelay = 1.0f;
+        [Header("Placement")]
+        [Tooltip("Distance (metres) at which AR cards float.")]
+        public float markerDistance = 1.5f;
+
+        [Tooltip("How quickly the card position lerps toward the new detected bbox. 0 = instant snap.")]
+        [Range(0f, 20f)]
+        public float positionLerpSpeed = 4f;
 
         // ── State ──────────────────────────────────────────────────
         private float _lastDetectTime;
         private float _lastRefreshTime;
         private ARMarkerBubble _activeMarker;
         private string _activeClassKey;
-        private ComponentData _activeComponent;
-        private float _classFirstSeenTime;
-        private bool _detailShown;
+        private Vector3 _targetMarkerPos;
 
         // ── Magic Leap Camera ──────────────────────────────────────
         private MLCamera _mlCamera;
@@ -55,10 +59,13 @@ namespace ARExplorer.Detection
 
         void Start()
         {
-            Debug.Log("[ARDetection] Start() called.");
-            if (classifier == null) { Debug.LogError("[ARDetection] Classifier is NULL - check Inspector!"); return; }
+            Debug.Log("[ARDetection] Start()");
+            if (classifier == null)
+            {
+                Debug.LogError("[ARDetection] Classifier is NULL — check Inspector!");
+                return;
+            }
             classifier.OnClassification += HandleClassification;
-            detailPanel?.Hide();
             InitMLCamera();
         }
 
@@ -66,16 +73,15 @@ namespace ARExplorer.Detection
         {
             if (!_cameraReady) return;
 
-            // Apply pending camera frame on main thread
+            // ── Apply pending camera frame on main thread ──────────
             if (_frameReady)
             {
-                byte[] data;
-                int w, h;
+                byte[] data; int w, h;
                 lock (this)
                 {
                     data = _pendingFrameData;
-                    w = _pendingWidth;
-                    h = _pendingHeight;
+                    w    = _pendingWidth;
+                    h    = _pendingHeight;
                     _frameReady = false;
                 }
 
@@ -88,38 +94,39 @@ namespace ARExplorer.Detection
 
             float now = Time.time;
 
-            // Run detection at interval
-            if (now - _lastDetectTime > detectionInterval)
+            // ── Run inference at interval ──────────────────────────
+            if (now - _lastDetectTime > detectionInterval && _cameraTexture != null)
             {
                 _lastDetectTime = now;
-                if (_cameraTexture != null)
-                    classifier.Classify(_cameraTexture);
+                classifier.Classify(_cameraTexture);
             }
 
-            // Auto-clear stale markers and hide detail panel
+            // ── Smoothly move active card toward latest detection ──
+            if (_activeMarker != null)
+            {
+                if (positionLerpSpeed > 0f)
+                    _activeMarker.transform.position = Vector3.Lerp(
+                        _activeMarker.transform.position,
+                        _targetMarkerPos,
+                        Time.deltaTime * positionLerpSpeed);
+                else
+                    _activeMarker.transform.position = _targetMarkerPos;
+            }
+
+            // ── Clear stale marker ─────────────────────────────────
             if (_activeMarker != null && now - _lastRefreshTime > staleTimeout)
-            {
-                detailPanel?.Hide();
                 ClearMarker();
-            }
-
-            // Auto-show detail panel after stable detection
-            if (_activeComponent != null && !_detailShown &&
-                now - _classFirstSeenTime >= detailShowDelay)
-            {
-                detailPanel?.Show(_activeComponent);
-                _detailShown = true;
-            }
         }
 
         void OnDestroy()
         {
-            classifier.OnClassification -= HandleClassification;
+            if (classifier != null)
+                classifier.OnClassification -= HandleClassification;
             StopMLCamera();
         }
 
         // ═══════════════════════════════════════════════════════════
-        //  Magic Leap Camera Setup
+        //  Magic Leap Camera
         // ═══════════════════════════════════════════════════════════
 
         private async void InitMLCamera()
@@ -128,17 +135,14 @@ namespace ARExplorer.Detection
             Debug.Log("[ARDetection] Editor mode — ML Camera skipped.");
             return;
 #endif
-            // Request camera permission
             if (!MLPermissions.CheckPermission(MLPermission.Camera).IsOk)
             {
-                Debug.Log("[ARDetection] Requesting camera permission...");
-                var permCallbacks = new MLPermissions.Callbacks();
-                permCallbacks.OnPermissionGranted += OnPermissionGranted;
-                permCallbacks.OnPermissionDenied += OnPermissionDenied;
-                MLPermissions.RequestPermission(MLPermission.Camera, permCallbacks);
+                var cb = new MLPermissions.Callbacks();
+                cb.OnPermissionGranted += OnPermissionGranted;
+                cb.OnPermissionDenied  += OnPermissionDenied;
+                MLPermissions.RequestPermission(MLPermission.Camera, cb);
                 return;
             }
-
             await StartCameraCapture();
         }
 
@@ -148,45 +152,29 @@ namespace ARExplorer.Detection
                 await StartCameraCapture();
         }
 
-        private void OnPermissionDenied(string permission)
-        {
+        private void OnPermissionDenied(string permission) =>
             Debug.LogError($"[ARDetection] Camera permission denied: {permission}");
-        }
 
         private async System.Threading.Tasks.Task StartCameraCapture()
         {
-            MLCamera.ConnectContext connectContext = MLCamera.ConnectContext.Create();
-            connectContext.CamId = MLCamera.Identifier.CV;
-            connectContext.Flags = MLCamera.ConnectFlag.CamOnly;
+            var ctx = MLCamera.ConnectContext.Create();
+            ctx.CamId = MLCamera.Identifier.CV;
+            ctx.Flags = MLCamera.ConnectFlag.CamOnly;
 
-            _mlCamera = await MLCamera.CreateAndConnectAsync(connectContext);
-            if (_mlCamera == null)
+            _mlCamera = await MLCamera.CreateAndConnectAsync(ctx);
+            if (_mlCamera == null) { Debug.LogError("[ARDetection] Failed to connect ML Camera."); return; }
+
+            var caps = MLCamera.GetImageStreamCapabilitiesForCamera(_mlCamera, MLCamera.CaptureType.Video);
+            if (caps.Length == 0) { Debug.LogError("[ARDetection] No camera stream capabilities."); return; }
+
+            _captureConfig = new MLCamera.CaptureConfig
             {
-                Debug.LogError("[ARDetection] Failed to connect ML Camera.");
-                return;
-            }
-
-            // Configure capture: 640x480 is sufficient for classification
-            MLCamera.StreamCapability[] capabilities = MLCamera.GetImageStreamCapabilitiesForCamera(
-                _mlCamera, MLCamera.CaptureType.Video
-            );
-
-            if (capabilities.Length == 0)
-            {
-                Debug.LogError("[ARDetection] No camera stream capabilities found.");
-                return;
-            }
-
-            _captureConfig = new MLCamera.CaptureConfig();
-            _captureConfig.CaptureFrameRate = MLCamera.CaptureFrameRate._30FPS;
-            _captureConfig.StreamConfigs = new MLCamera.CaptureStreamConfig[1];
-            _captureConfig.StreamConfigs[0] = MLCamera.CaptureStreamConfig.Create(
-                capabilities[0], MLCamera.OutputFormat.RGBA_8888
-            );
+                CaptureFrameRate = MLCamera.CaptureFrameRate._30FPS,
+                StreamConfigs    = new[] { MLCamera.CaptureStreamConfig.Create(caps[0], MLCamera.OutputFormat.RGBA_8888) }
+            };
 
             _mlCamera.PrepareCapture(_captureConfig, out MLCamera.Metadata _);
             await _mlCamera.PreCaptureAEAWBAsync();
-
             _mlCamera.OnRawVideoFrameAvailable += OnCameraFrame;
             await _mlCamera.CaptureVideoStartAsync();
 
@@ -194,31 +182,23 @@ namespace ARExplorer.Detection
             Debug.Log("[ARDetection] ML Camera started.");
         }
 
-        // Called on background thread — copy bytes only, apply on main thread in Update
-        private void OnCameraFrame(MLCamera.CameraOutput output, MLCamera.ResultExtras extras,
-            MLCamera.Metadata metadata)
+        // Background thread — copy bytes only
+        private void OnCameraFrame(MLCamera.CameraOutput output, MLCamera.ResultExtras extras, MLCamera.Metadata meta)
         {
             if (output.Planes.Length == 0) return;
-
-            var plane = output.Planes[0];
-            int width = (int)plane.Width;
+            var plane  = output.Planes[0];
+            int width  = (int)plane.Width;
             int height = (int)plane.Height;
             uint stride = plane.Stride > 0 ? plane.Stride : (uint)(width * 4);
-
-            // Copy row by row to strip stride padding
             int rowBytes = width * 4;
-            byte[] tightly = new byte[width * height * 4];
+            byte[] tight = new byte[width * height * 4];
             for (int row = 0; row < height; row++)
-            {
-                int src = (int)(row * stride);
-                int dst = row * rowBytes;
-                System.Buffer.BlockCopy(plane.Data, src, tightly, dst, rowBytes);
-            }
+                System.Buffer.BlockCopy(plane.Data, (int)(row * stride), tight, row * rowBytes, rowBytes);
 
             lock (this)
             {
-                _pendingFrameData = tightly;
-                _pendingWidth = width;
+                _pendingFrameData = tight;
+                _pendingWidth  = width;
                 _pendingHeight = height;
                 _frameReady = true;
             }
@@ -226,45 +206,42 @@ namespace ARExplorer.Detection
 
         private void StopMLCamera()
         {
-            if (_mlCamera != null)
-            {
-                _mlCamera.OnRawVideoFrameAvailable -= OnCameraFrame;
-                _mlCamera.CaptureVideoStop();
-                _mlCamera.Disconnect();
-                _mlCamera = null;
-            }
+            if (_mlCamera == null) return;
+            _mlCamera.OnRawVideoFrameAvailable -= OnCameraFrame;
+            _mlCamera.CaptureVideoStop();
+            _mlCamera.Disconnect();
+            _mlCamera = null;
         }
 
         // ═══════════════════════════════════════════════════════════
-        //  Detection Handling
+        //  Detection
         // ═══════════════════════════════════════════════════════════
 
         private void HandleClassification(ImageClassifier.ClassificationResult result)
         {
-            if (result.isBackground)
-            {
-                // Nothing detected — clear after stale timeout (handled in Update)
-                return;
-            }
+            if (result.isBackground) return;
 
             string classKey = result.className.ToLower().Replace(" ", "_");
             if (componentDatabase == null) { Debug.LogError("[ARDetection] componentDatabase is NULL!"); return; }
             ComponentData comp = componentDatabase.Resolve(result.className);
-
             if (comp == null) return;
+
+            // Compute where the marker should float in world space
+            Vector3 newPos = BboxToWorldPos(result.boundingBox);
 
             _lastRefreshTime = Time.time;
 
-            // If class changed, destroy old marker and create new one
-            if (_activeClassKey != classKey)
+            if (_activeClassKey == classKey)
             {
-                detailPanel?.Hide();
+                // Same object — just update target position, no respawn
+                _targetMarkerPos = newPos;
+            }
+            else
+            {
+                // New object — replace marker
                 ClearMarker();
-                SpawnMarker(comp);
+                SpawnMarker(comp, newPos);
                 _activeClassKey = classKey;
-                _activeComponent = comp;
-                _classFirstSeenTime = Time.time;
-                _detailShown = false;
             }
         }
 
@@ -272,16 +249,15 @@ namespace ARExplorer.Detection
         //  Marker Management
         // ═══════════════════════════════════════════════════════════
 
-        private void SpawnMarker(ComponentData comp)
+        private void SpawnMarker(ComponentData comp, Vector3 worldPos)
         {
             if (markerBubblePrefab == null) return;
 
-            // Position marker 1.5m in front of user, centered in view
-            Transform cam = Camera.main.transform;
-            Vector3 pos = cam.position + cam.forward * 1.5f;
+            _targetMarkerPos = worldPos;
+            _activeMarker    = Instantiate(markerBubblePrefab, worldPos, Quaternion.identity, markerParent);
+            _activeMarker.Initialize(comp);
 
-            _activeMarker = Instantiate(markerBubblePrefab, pos, Quaternion.identity, markerParent);
-            _activeMarker.Initialize(comp, () => detailPanel?.Show(comp));
+            Debug.Log($"[ARDetection] Spawned card for '{comp.displayName}' at {worldPos}");
         }
 
         private void ClearMarker()
@@ -292,8 +268,27 @@ namespace ARExplorer.Detection
                 _activeMarker = null;
             }
             _activeClassKey = null;
-            _activeComponent = null;
-            _detailShown = false;
+        }
+
+        // ═══════════════════════════════════════════════════════════
+        //  Helpers
+        // ═══════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Convert a normalised YOLO bounding box to a world-space position.
+        /// YOLO bbox: x/y = top-left (0-1), y=0 is top.
+        /// Unity viewport: y=0 is bottom → invert Y.
+        /// </summary>
+        private Vector3 BboxToWorldPos(Rect bbox)
+        {
+            Camera cam = Camera.main;
+            if (cam == null) return transform.position + transform.forward * markerDistance;
+
+            float vpX = bbox.x + bbox.width  * 0.5f;
+            float vpY = 1f - (bbox.y + bbox.height * 0.5f); // invert Y for Unity
+
+            Ray ray = cam.ViewportPointToRay(new Vector3(vpX, vpY, 0f));
+            return ray.origin + ray.direction * markerDistance;
         }
     }
 }

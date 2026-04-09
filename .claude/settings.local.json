@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:teachablemachine.withgoogle.com)"
+      "WebFetch(domain:teachablemachine.withgoogle.com)",
+      "Bash(claude mcp:*)"
     ]
   }
 }
