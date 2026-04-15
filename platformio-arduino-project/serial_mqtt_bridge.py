@@ -2,11 +2,17 @@ import serial
 import serial.tools.list_ports
 import paho.mqtt.client as mqtt
 import time
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Configuration ---
-MQTT_BROKER = "broker.hivemq.com"
-MQTT_PORT = 1883
-MQTT_TOPIC = "hospital/sensors/ultrasonic"
+MQTT_BROKER = os.getenv("MQTT_BROKER")
+MQTT_PORT   = int(os.getenv("MQTT_PORT", 8883))
+MQTT_TOPIC  = os.getenv("MQTT_TOPIC")
+MQTT_USER   = os.getenv("MQTT_USER")
+MQTT_PASS   = os.getenv("MQTT_PASS")
 BAUD_RATE = 115200
 
 def find_arduino_port():
@@ -47,7 +53,9 @@ def main():
     print("🔗 Connecting to MQTT...")
     client = mqtt.Client()
     client.on_connect = on_connect
-    
+    client.username_pw_set(MQTT_USER, MQTT_PASS)
+    client.tls_set()  # enables TLS for port 8883
+
     try:
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()
