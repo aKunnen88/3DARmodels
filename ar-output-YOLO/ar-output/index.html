@@ -10,8 +10,7 @@
 
 <body>
 
-  <!-- Camera feed -->
-  <video id="camera" autoplay playsinline muted></video>
+  <!-- Overlay canvas (bounding boxes) — sits above MindAR's camera canvas -->
   <canvas id="overlay"></canvas>
 
   <!-- HUD -->
@@ -47,17 +46,116 @@
     </div>
   </div>
 
+  <!-- Trio validation popup -->
+  <div id="trio-popup" class="hidden">
+    <div class="trio-inner">
+      <p class="trio-hint">Arduino opstelling herkend</p>
+      <button id="trio-confirm-btn">Opstelling?</button>
+    </div>
+  </div>
+
+  <!-- Anchored measurement plane -->
+  <div id="measurement-plane" class="hidden">
+    <div class="mplane-header">
+      <div class="mplane-title-row">
+        <span class="mplane-dot"></span>
+        <span class="mplane-title">OPSTELLING</span>
+      </div>
+      <button id="mplane-reset-btn">✕</button>
+    </div>
+    <div class="mplane-rows">
+      <div class="mplane-row">
+        <span class="mplane-label">Ultrasonic</span>
+        <span class="mplane-value" id="mplane-us">— cm</span>
+      </div>
+      <div class="mplane-row">
+        <span class="mplane-label">LED Active</span>
+        <span class="mplane-value" id="mplane-led">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Overview panel (large, ground-parallel, ~1m away) -->
+  <div id="overview-panel" class="hidden">
+    <div class="ov-header">
+      <span class="ov-dot"></span>
+      <span class="ov-title">ARDUINO AR EXPLORER</span>
+    </div>
+    <p class="ov-desc">
+      Real-time AR component detection met een Arduino-opstelling. De HC-SR04 ultrasone sensor meet afstand en stuurt data via seriële poort naar een Python MQTT-bridge. De data wordt gepubliceerd op HiveMQ Cloud en live weergegeven in deze AR-omgeving via WebSocket.
+    </p>
+    <div class="ov-stats">
+      <div class="ov-stat">
+        <span class="ov-stat-label">Model</span>
+        <span class="ov-stat-value">Roboflow YOLO</span>
+      </div>
+      <div class="ov-stat">
+        <span class="ov-stat-label">Broker</span>
+        <span class="ov-stat-value">HiveMQ Cloud</span>
+      </div>
+      <div class="ov-stat">
+        <span class="ov-stat-label">Protocol</span>
+        <span class="ov-stat-value">MQTT / WSS</span>
+      </div>
+      <div class="ov-stat">
+        <span class="ov-stat-label">Platform</span>
+        <span class="ov-stat-value">Web AR</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom action bar -->
+  <div id="action-bar">
+    <button id="ai-btn" aria-label="Ask AI">
+      <span class="action-icon">✦</span>
+      <span class="action-label">Ask AI</span>
+    </button>
+    <button id="mic-btn" aria-label="Voice input">
+      <span class="action-icon">🎙</span>
+    </button>
+  </div>
+
+  <!-- AI Panel -->
+  <div id="ai-panel" class="hidden">
+    <div id="ai-panel-bg" ></div>
+    <div id="ai-panel-content">
+      <div id="ai-panel-header">
+        <div class="ai-header-title">
+          <span class="dot"></span>
+          AI Assistant
+        </div>
+        <button id="ai-close-btn">✕</button>
+      </div>
+      <div id="ai-response-area">
+        <div id="ai-response-text">Ask me anything about the detected components or your circuit.</div>
+      </div>
+      <div id="ai-input-row">
+        <input id="ai-input" type="text" placeholder="Ask about your circuit…" autocomplete="off" />
+        <button id="ai-send-btn">↑</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Loading screen -->
   <div id="loading-screen">
     <div class="loader-content">
       <div class="loader-ring"></div>
       <div class="loader-text">Initializing AR<span class="dots">...</span></div>
-      <div class="loader-sub">Loading object detection model</div>
+      <div class="loader-sub">Loading AR tracking engine</div>
     </div>
   </div>
 
 
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.150.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.150.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="js/components-db.js"></script>
-  <script src="js/ar-engine.js"></script>
+  <script type="module" src="js/ar-engine.js"></script>
 </body>
 </html>
