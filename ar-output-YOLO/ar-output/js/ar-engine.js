@@ -15,6 +15,7 @@ const state = {
   lastActiveClass: null,    // track which class is currently shown
   markerRefreshedAt: 0,     // timestamp of last successful detection
   MARKER_STALE_MS: 1500,    // extended to 1.5s for Roboflow API latency
+  LERP_FACTOR: 0.12,        // smooth "float" speed (0-1)
 };
 
 // ── DOM refs ───────────────────────────────────────────────────
@@ -65,8 +66,27 @@ async function startCamera() {
 }
 
 function resizeCanvas() {
-  canvas.width  = video.videoWidth  || window.innerWidth;
-  canvas.height = video.videoHeight || window.innerHeight;
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+
+/**
+ * Maps raw video coordinates to screen coordinates accounting for object-fit: cover
+ */
+function getScreenCoords(vx, vy) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  const sw = window.innerWidth;
+  const sh = window.innerHeight;
+
+  const scale = Math.max(sw / vw, sh / vh);
+  const offsetX = (vw * scale - sw) / 2;
+  const offsetY = (vh * scale - sh) / 2;
+
+  return {
+    x: vx * scale - offsetX,
+    y: vy * scale - offsetY
+  };
 }
 
 // ── Main render loop ───────────────────────────────────────────
@@ -88,12 +108,21 @@ function renderLoop(ts) {
   }
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  // Update and draw markers (LERP)
+  state.markers.forEach(m => {
+    m.curX += (m.targetX - m.curX) * state.LERP_FACTOR;
+    m.curY += (m.targetY - m.curY) * state.LERP_FACTOR;
+    m.el.style.left = `${m.curX}px`;
+    m.el.style.top  = `${m.curY}px`;
+  });
+
   drawDetections();
 }
 
 // ── Teachable Machine detection ────────────────────────────────
 const RF_API_KEY = 'sCeSU3tBkqCWRttvc4p5';
-const RF_MODEL   = 'my-first-project-iccnb/1'; // shown on your versions page
+const RF_MODEL   = 'my-first-project-iccnb/2'; // shown on your versions page
 
 async function detect() {
   if (!state.scanning || video.paused) return;
@@ -142,14 +171,17 @@ async function detect() {
 
 // ── Draw bounding boxes on canvas ─────────────────────────────
 function drawDetections() {
-  const sw = canvas.width  / (video.videoWidth  || canvas.width);
-  const sh = canvas.height / (video.videoHeight || canvas.height);
-
   state.detections.forEach(pred => {
-    const [x, y, w, h] = pred.bbox;
+    const [vx, vy, vw, vh] = pred.bbox;
     const comp = resolveComponent(pred.class);
-    const cx = x * sw, cy = y * sh, cw = w * sw, ch = h * sh;
+    
+    // Map center and corners to screen
+    const tl = getScreenCoords(vx, vy);
+    const br = getScreenCoords(vx + vw, vy + vh);
+    
+    const cx = tl.x, cy = tl.y, cw = br.x - tl.x, ch = br.y - tl.y;
     const arm = Math.min(cw, ch) * 0.22;
+    
     ctx.save();
     drawCornerBrackets(cx, cy, cw, ch, arm, comp.color);
     ctx.restore();
@@ -221,29 +253,20 @@ function syncMarkers(preds) {
     currentCounts[classId] = (currentCounts[classId] || 0) + 1;
     const markerId = `marker-${classId}-${currentCounts[classId]}`;
 
-    const [x, y, w, h] = pred.bbox;
-
-    const vw = video.videoWidth  || window.innerWidth;
-    const vh = video.videoHeight || window.innerHeight;
-    const sw = window.innerWidth  / vw;
-    const sh = window.innerHeight / vh;
-
-    const cx = (x + w / 2) * sw;
-    const cy = (y + h / 2) * sh;
+    const [vx, vy, vw, vh] = pred.bbox;
+    const { x: targetX, y: targetY } = getScreenCoords(vx + vw / 2, vy + vh / 2);
 
     let marker = state.markers.find(m => m.id === markerId);
-
-    // No inner destroy/recreate block needed for mismatches because we ID elements via class name.
 
     if (!marker) {
       const el = createMarkerEl(comp, pred.class, markerId);
       markersEl.appendChild(el);
-      marker = { id: markerId, el, comp };
+      marker = { id: markerId, el, comp, curX: targetX, curY: targetY, targetX, targetY };
       state.markers.push(marker);
     }
 
-    marker.el.style.left = `${cx}px`;
-    marker.el.style.top  = `${cy}px`;
+    marker.targetX = targetX;
+    marker.targetY = targetY;
     marker.comp = comp;
     marker.el.dataset.comp = comp.id;
   });

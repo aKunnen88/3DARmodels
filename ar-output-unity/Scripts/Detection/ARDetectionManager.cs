@@ -26,7 +26,7 @@ namespace ARExplorer.Detection
         public float detectionInterval = 0.25f;
 
         [Tooltip("Seconds before a stale marker is cleared (raise this if cards flicker).")]
-        public float staleTimeout = 1.5f;
+        public float staleTimeout = 4.0f;
 
         [Header("Placement")]
         [Tooltip("Distance (metres) at which AR cards float.")]
@@ -102,7 +102,9 @@ namespace ARExplorer.Detection
             }
 
             // ── Smoothly move active card toward latest detection ──
-            if (_activeMarker != null)
+            // Do NOT move the card while the user has it expanded — that causes
+            // the card to slide away from the interaction beam mid-click.
+            if (_activeMarker != null && !_activeMarker.IsExpanded)
             {
                 if (positionLerpSpeed > 0f)
                     _activeMarker.transform.position = Vector3.Lerp(
@@ -114,8 +116,15 @@ namespace ARExplorer.Detection
             }
 
             // ── Clear stale marker ─────────────────────────────────
+            // Never destroy a card the user has open — wait until they close it
+            // or until it has been stale for twice the normal timeout.
             if (_activeMarker != null && now - _lastRefreshTime > staleTimeout)
-                ClearMarker();
+            {
+                if (!_activeMarker.IsExpanded)
+                    ClearMarker();
+                else if (now - _lastRefreshTime > staleTimeout * 2f)
+                    ClearMarker(); // safety: eventually clean up even if stuck open
+            }
         }
 
         void OnDestroy()

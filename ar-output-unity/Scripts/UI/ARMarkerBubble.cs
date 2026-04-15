@@ -96,6 +96,9 @@ namespace ARExplorer.Detection
             LeanTween.scale(gameObject, _restScale, 0.28f).setEaseOutBack();
         }
 
+        /// <summary>True while the detail card is open.</summary>
+        public bool IsExpanded => _expanded;
+
         /// <summary>Toggle collapsed ↔ expanded.</summary>
         public void OnSelect()
         {
@@ -171,7 +174,9 @@ namespace ARExplorer.Detection
             // ── World-space canvas ─────────────────────────────────────
             var canvas      = gameObject.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
-            gameObject.AddComponent<GraphicRaycaster>();
+            // TrackedDeviceGraphicRaycaster is required for XR ray-cast interaction
+            // (Magic Leap 2 controller / hand rays via XRUIInputModule).
+            gameObject.AddComponent<UnityEngine.XR.Interaction.Toolkit.UI.TrackedDeviceGraphicRaycaster>();
             _cg = gameObject.AddComponent<CanvasGroup>();
 
             var canvasRT      = GetComponent<RectTransform>();

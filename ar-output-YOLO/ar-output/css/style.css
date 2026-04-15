@@ -160,6 +160,7 @@ html, body {
   align-items: center;
   gap: 6px;
   animation: marker-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  will-change: left, top;
 }
 
 @keyframes marker-in {
@@ -224,8 +225,7 @@ html, body {
 
 @keyframes bounce-idle {
   0%,100% { transform: translateY(0px); }
-  30%     { transform: translateY(-8px); }
-  60%     { transform: translateY(-3px); }
+  50%     { transform: translateY(-4px); }
 }
 
 /* Label below dot */

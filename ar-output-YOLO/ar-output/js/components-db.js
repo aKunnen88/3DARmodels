@@ -22,9 +22,9 @@ window.COMPONENTS_DB = {
     tip: "🔌 Pro tip: Connect the long leg (anode) to a digital pin via a 220Ω resistor, and the short leg (cathode) to GND."
   },
 
-  // Teachable Machine class "LEDRed" → resolves to "ledred"
-  ledred: {
-    id: "ledred",
+  // Roboflow label "REDLed" → resolves to "redled"
+  redled: {
+    id: "redled",
     name: "LED (Red)",
     fullName: "Red Light Emitting Diode",
     icon: "💡",
