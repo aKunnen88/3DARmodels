@@ -39,12 +39,53 @@ const ovPanel     = document.getElementById('overview-panel');
 
 // ── Positioning constants ──────────────────────────────────────
 const PLANE_OFFSET = 160;  // px above anchor for measurement plane
-const OV_OFFSET    = 320;  // px above anchor for overview panel
 
 // ── MindAR state ──────────────────────────────────────────────
 let mindarTargetVisible = false;
 let mindarAnchorGroup   = null;
 let mindarCamera        = null;
+
+// ── Overview panel — gyroscope world anchoring ────────────────
+// Records phone orientation at app load, then keeps the panel
+// at that fixed world direction. Panel drifts off-screen when
+// the user looks away and comes back when they look at it again.
+const currentOrient = { beta: 0, gamma: 0 };
+const ovAnchor      = { beta0: null, gamma0: null, ready: false };
+let   ovBaseX       = 0;   // screen X set at startup
+let   ovBaseY       = 0;   // screen Y set at startup
+
+const PPD_X = () => window.innerWidth  / 18;
+const PPD_Y = () => window.innerHeight / 18;
+
+window.addEventListener('deviceorientation', (e) => {
+  if (e.beta === null) return;
+  if (!ovAnchor.ready) {
+    ovAnchor.beta0  = e.beta;
+    ovAnchor.gamma0 = e.gamma;
+    ovAnchor.ready  = true;
+  }
+  currentOrient.beta  = e.beta;
+  currentOrient.gamma = e.gamma;
+}, { passive: true });
+
+// ── iOS motion permission ─────────────────────────────────────
+// iOS 13+ blocks DeviceOrientationEvent unless requestPermission()
+// is called from within a user gesture. Without this, gyroscope
+// events never fire and the overview panel stays glued to screen.
+async function requestSensorPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        console.warn('Motion permission denied — world anchoring disabled');
+      }
+    } catch (e) {
+      console.warn('Motion permission error:', e);
+    }
+  }
+  // Non-iOS: permission not needed, just continue
+}
 
 // ── Boot ──────────────────────────────────────────────────────
 async function boot() {
@@ -77,9 +118,7 @@ async function initMindAR() {
   imageAnchor.onTargetFound = () => {
     mindarTargetVisible = true;
     mPlane.classList.remove('hidden');
-    ovPanel.classList.remove('hidden');
-    mPlane.style.visibility  = 'visible';
-    ovPanel.style.visibility = 'visible';
+    mPlane.style.visibility = 'visible';
     updateStatus('Arduino setup detected');
     syncMPlaneValues();
     if (navigator.vibrate) navigator.vibrate([20, 10, 20]);
@@ -88,7 +127,6 @@ async function initMindAR() {
   imageAnchor.onTargetLost = () => {
     mindarTargetVisible = false;
     mPlane.classList.add('hidden');
-    ovPanel.classList.add('hidden');
     clearInterval(mPlaneSyncInterval);
     updateStatus('Point at the target image');
   };
@@ -130,6 +168,14 @@ async function initMindAR() {
   hideLoader();
   updateStatus('Point at the target image');
 
+  // Show overview panel immediately, anchored to the user's initial direction
+  ovBaseX = window.innerWidth  / 2;
+  ovBaseY = window.innerHeight / 2;
+  ovPanel.style.left = `${ovBaseX}px`;
+  ovPanel.style.top  = `${ovBaseY}px`;
+  ovPanel.classList.remove('hidden');
+  ovPanel.style.visibility = 'visible';
+
   // MindAR's animation loop replaces requestAnimationFrame
   renderer.setAnimationLoop(() => {
     renderer.render(scene, camera);
@@ -161,6 +207,7 @@ async function initMindAR() {
     if (mindarTargetVisible && mindarAnchorGroup) {
       updatePanelsFromMindAR();
     }
+    updateOverviewPanel();
   });
 }
 
@@ -169,7 +216,7 @@ function resizeCanvas() {
   canvas.height = window.innerHeight;
 }
 
-// Projects MindAR anchor's 3D world position to 2D screen coords
+// Projects MindAR anchor's 3D world position to 2D screen coords (measurement plane only)
 function updatePanelsFromMindAR() {
   const worldPos = new THREE.Vector3();
   mindarAnchorGroup.getWorldPosition(worldPos);
@@ -181,12 +228,27 @@ function updatePanelsFromMindAR() {
   mPlane.style.left = `${screenX}px`;
   mPlane.style.top  = `${screenY - PLANE_OFFSET}px`;
 
-  ovPanel.style.left = `${screenX}px`;
-  ovPanel.style.top  = `${Math.max(80, screenY - OV_OFFSET)}px`;
-
   const onScreen = screenX > -240 && screenX < window.innerWidth  + 240 &&
                    screenY > -100 && screenY < window.innerHeight + 300;
-  mPlane.style.visibility  = onScreen ? 'visible' : 'hidden';
+  mPlane.style.visibility = onScreen ? 'visible' : 'hidden';
+}
+
+// Keeps overview panel at the direction the phone was facing at app load.
+// When the user looks away it drifts off-screen; looking back brings it back.
+function updateOverviewPanel() {
+  if (!ovAnchor.ready) return;
+
+  const dGamma = currentOrient.gamma - ovAnchor.gamma0;
+  const dBeta  = currentOrient.beta  - ovAnchor.beta0;
+
+  const sx = ovBaseX + (-dGamma * PPD_X());
+  const sy = ovBaseY + ( dBeta  * PPD_Y());
+
+  ovPanel.style.left = `${sx}px`;
+  ovPanel.style.top  = `${sy}px`;
+
+  const onScreen = sx > -240 && sx < window.innerWidth  + 240 &&
+                   sy > -120 && sy < window.innerHeight + 120;
   ovPanel.style.visibility = onScreen ? 'visible' : 'hidden';
 }
 
@@ -419,7 +481,6 @@ function connectMQTT() {
 // ── Measurement plane ─────────────────────────────────────────
 mPlaneReset.addEventListener('click', () => {
   mPlane.classList.add('hidden');
-  ovPanel.classList.add('hidden');
   clearInterval(mPlaneSyncInterval);
 });
 
@@ -538,4 +599,22 @@ if (SpeechRecognition) {
 }
 
 // ── Start ─────────────────────────────────────────────────────
-boot();
+// Gate startup behind a user tap so iOS will grant DeviceOrientation
+// permission (required for gyroscope-based world anchoring).
+const loaderRing = document.getElementById('loader-ring');
+const loaderText = document.getElementById('loader-text');
+const loaderSub  = document.getElementById('loader-sub');
+
+loadScreen.addEventListener('click', async () => {
+  // Switch to spinner / loading state
+  loadScreen.classList.remove('tap-ready');
+  loaderRing.style.opacity = '1';
+  loaderText.textContent   = 'Initializing AR';
+  loaderSub.textContent    = 'Loading AR tracking engine…';
+  loaderSub.style.animation = 'none';
+
+  // Request iOS motion permission — MUST be inside a user gesture
+  await requestSensorPermission();
+
+  boot();
+}, { once: true });
