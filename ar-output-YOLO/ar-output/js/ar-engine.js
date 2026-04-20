@@ -1,28 +1,29 @@
 // ═══════════════════════════════════════════════════════════════
 //  AR Engine — Arduino Component Detector
-//  Uses: Roboflow YOLO + MindAR.js image target tracking + MQTT
+//  Uses: Roboflow YOLO + MindAR image tracking + MQTT + CSS3D
 // ═══════════════════════════════════════════════════════════════
 import * as THREE from 'three';
 import { MindARThree } from 'https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js';
+import { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js';
+import { Line2 }         from 'three/addons/lines/Line2.js';
+import { LineMaterial }  from 'three/addons/lines/LineMaterial.js';
+import { LineGeometry }  from 'three/addons/lines/LineGeometry.js';
 
+// ── State ──────────────────────────────────────────────────────
 const state = {
-  markers: [],
-  detections: [],
-  scanning: true,
+  detections:       [],
+  scanning:         true,
   lastDetectionTime: 0,
   detectionInterval: 300,
   markerRefreshedAt: 0,
-  MARKER_STALE_MS: 1500,
-  LERP_FACTOR: 0.12,
+  MARKER_STALE_MS:   1500,
 };
 
 // ── DOM refs ───────────────────────────────────────────────────
-let video = null; // assigned after MindAR starts
-const canvas      = document.getElementById('overlay');
-const ctx         = canvas.getContext('2d');
+let video = null;
 const loadScreen  = document.getElementById('loading-screen');
 const hudStatus   = document.getElementById('hud-status');
-const markersEl   = document.getElementById('markers-container');
+const scanRing    = document.getElementById('scan-ring');
 const panel       = document.getElementById('detail-panel');
 const panelTitle  = document.getElementById('panel-title');
 const panelBadge  = document.getElementById('panel-badge');
@@ -31,61 +32,31 @@ const panelSpecs  = document.getElementById('panel-specs');
 const panelTip    = document.getElementById('panel-tip');
 const panelIcon   = document.getElementById('panel-icon');
 const closeBtn    = document.getElementById('close-panel');
-const mPlane      = document.getElementById('measurement-plane');
-const mPlaneReset = document.getElementById('mplane-reset-btn');
 const mPlaneUS    = document.getElementById('mplane-us');
 const mPlaneLED   = document.getElementById('mplane-led');
+const ledPulse    = document.getElementById('led-pulse');
+const mqttDot     = document.getElementById('mqtt-dot');
 const ovPanel     = document.getElementById('overview-panel');
+const mPlane      = document.getElementById('measurement-plane');
+const mPlaneReset = document.getElementById('mplane-reset-btn');
 
-// ── Positioning constants ──────────────────────────────────────
-const PLANE_OFFSET = 160;  // px above anchor for measurement plane
-
-// ── MindAR state ──────────────────────────────────────────────
+// ── MindAR / Three.js state ────────────────────────────────────
 let mindarTargetVisible = false;
 let mindarAnchorGroup   = null;
 let mindarCamera        = null;
+let cssRenderer         = null;
+let worldUIGroup        = null;
+let scene               = null;
 
-// ── Overview panel — gyroscope world anchoring ────────────────
-// Records phone orientation at app load, then keeps the panel
-// at that fixed world direction. Panel drifts off-screen when
-// the user looks away and comes back when they look at it again.
-const currentOrient = { beta: 0, gamma: 0 };
-const ovAnchor      = { beta0: null, gamma0: null, ready: false };
-let   ovBaseX       = 0;   // screen X set at startup
-let   ovBaseY       = 0;   // screen Y set at startup
+// ── Panels (CSS3DObjects) ──────────────────────────────────────
+const PANEL_SCALE = 0.0018;
+const PILL_SCALE  = 0.0011;
+let ovObj  = null;   // overview  – LEFT
+let mpObj  = null;   // measurements – CENTER
 
-const PPD_X = () => window.innerWidth  / 18;
-const PPD_Y = () => window.innerHeight / 18;
-
-window.addEventListener('deviceorientation', (e) => {
-  if (e.beta === null) return;
-  if (!ovAnchor.ready) {
-    ovAnchor.beta0  = e.beta;
-    ovAnchor.gamma0 = e.gamma;
-    ovAnchor.ready  = true;
-  }
-  currentOrient.beta  = e.beta;
-  currentOrient.gamma = e.gamma;
-}, { passive: true });
-
-// ── iOS motion permission ─────────────────────────────────────
-// iOS 13+ blocks DeviceOrientationEvent unless requestPermission()
-// is called from within a user gesture. Without this, gyroscope
-// events never fire and the overview panel stays glued to screen.
-async function requestSensorPermission() {
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    try {
-      const perm = await DeviceOrientationEvent.requestPermission();
-      if (perm !== 'granted') {
-        console.warn('Motion permission denied — world anchoring disabled');
-      }
-    } catch (e) {
-      console.warn('Motion permission error:', e);
-    }
-  }
-  // Non-iOS: permission not needed, just continue
-}
+// ── Beam / pill tracking ───────────────────────────────────────
+let beamObjects = [];   // { line, endcap, pillObj }
+let lineMat     = null;
 
 // ── Boot ──────────────────────────────────────────────────────
 async function boot() {
@@ -93,12 +64,12 @@ async function boot() {
     await initMindAR();
     connectMQTT();
   } catch (err) {
-    updateStatus('⚠️ ' + err.message);
+    updateStatus('⚠ ' + err.message);
     hideLoader();
   }
 }
 
-// ── MindAR + Three.js initialization ──────────────────────────
+// ── MindAR + Three.js + CSS3D init ────────────────────────────
 async function initMindAR() {
   const mindarThree = new MindARThree({
     container:      document.body,
@@ -108,77 +79,78 @@ async function initMindAR() {
     uiError:        'no',
   });
 
-  const { renderer, scene, camera } = mindarThree;
-  mindarCamera = camera;
+  const { renderer, camera } = mindarThree;
+  scene         = mindarThree.scene;
+  mindarCamera  = camera;
 
-  // Anchor for target image at index 0
-  const imageAnchor = mindarThree.addAnchor(0);
-  mindarAnchorGroup = imageAnchor.group;
-
-  imageAnchor.onTargetFound = () => {
-    mindarTargetVisible = true;
-    mPlane.classList.remove('hidden');
-    mPlane.style.visibility = 'visible';
-    updateStatus('Arduino setup detected');
-    syncMPlaneValues();
-    if (navigator.vibrate) navigator.vibrate([20, 10, 20]);
-  };
-
-  imageAnchor.onTargetLost = () => {
-    mindarTargetVisible = false;
-    mPlane.classList.add('hidden');
-    clearInterval(mPlaneSyncInterval);
-    updateStatus('Point at the target image');
-  };
-
-  await mindarThree.start();
-
-  // Remove MindAR's Three.js background plane (video texture doesn't work on iOS).
-  // We show the camera feed via the raw <video> element instead.
-  if (mindarThree.background) scene.remove(mindarThree.background);
-  renderer.setClearColor(0x000000, 0); // Three.js canvas is now transparent
-
-  // Make MindAR's video element fill the screen as camera background
-  video = mindarThree.video;
-  Object.assign(video.style, {
-    position:   'fixed',
-    top:        '0',
-    left:       '0',
-    width:      '100%',
-    height:     '100%',
-    objectFit:  'cover',
-    zIndex:     '0',
-    display:    'block',
-    visibility: 'visible',
+  // Shared white beam material
+  lineMat = new LineMaterial({
+    color:       0xffffff,
+    linewidth:   2.5,
+    transparent: true,
+    opacity:     0.88,
+    worldUnits:  false,
+    resolution:  new THREE.Vector2(window.innerWidth, window.innerHeight),
   });
 
-  // Three.js canvas sits above video but is transparent — tracking only
-  Object.assign(renderer.domElement.style, {
+  // ── CSS3DRenderer ──────────────────────────────────────────
+  cssRenderer = new CSS3DRenderer();
+  cssRenderer.setSize(window.innerWidth, window.innerHeight);
+  Object.assign(cssRenderer.domElement.style, {
     position:      'fixed',
     top:           '0',
     left:          '0',
     width:         '100%',
     height:        '100%',
-    zIndex:        '1',
+    zIndex:        '2',
     pointerEvents: 'none',
   });
+  document.body.appendChild(cssRenderer.domElement);
 
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
+  // ── MindAR anchor ─────────────────────────────────────────
+  const imageAnchor = mindarThree.addAnchor(0);
+  mindarAnchorGroup = imageAnchor.group;
+
+  // World UI group lives inside the anchor → tracks with target
+  worldUIGroup = new THREE.Group();
+  mindarAnchorGroup.add(worldUIGroup);
+
+  // World-anchored panels
+  setupWorldPanels();
+
+  imageAnchor.onTargetFound = onTargetFound;
+  imageAnchor.onTargetLost  = onTargetLost;
+
+  await mindarThree.start();
+
+  // Transparent WebGL canvas — video shows through
+  if (mindarThree.background) scene.remove(mindarThree.background);
+  renderer.setClearColor(0x000000, 0);
+
+  video = mindarThree.video;
+  Object.assign(video.style, {
+    position: 'fixed', top: '0', left: '0',
+    width: '100%', height: '100%',
+    objectFit: 'cover', zIndex: '0',
+    display: 'block', visibility: 'visible',
+  });
+
+  Object.assign(renderer.domElement.style, {
+    position: 'fixed', top: '0', left: '0',
+    width: '100%', height: '100%',
+    zIndex: '1', pointerEvents: 'none',
+  });
+
+  window.addEventListener('resize', onResize);
+  onResize();
+
   hideLoader();
-  updateStatus('Point at the target image');
+  updateStatus('Point at the Arduino opstelling');
 
-  // Show overview panel immediately, anchored to the user's initial direction
-  ovBaseX = window.innerWidth  / 2;
-  ovBaseY = window.innerHeight / 2;
-  ovPanel.style.left = `${ovBaseX}px`;
-  ovPanel.style.top  = `${ovBaseY}px`;
-  ovPanel.classList.remove('hidden');
-  ovPanel.style.visibility = 'visible';
-
-  // MindAR's animation loop replaces requestAnimationFrame
+  // ── Render loop ──────────────────────────────────────────
   renderer.setAnimationLoop(() => {
-    renderer.render(scene, camera);
+    renderer.render(scene, mindarCamera);
+    cssRenderer.render(scene, mindarCamera);
 
     const now = performance.now();
     if (now - state.lastDetectionTime > state.detectionInterval) {
@@ -186,87 +158,227 @@ async function initMindAR() {
       detect();
     }
 
-    // Clear stale markers when no fresh detection arrives
-    if (state.detections.length > 0 && now - state.markerRefreshedAt > state.MARKER_STALE_MS) {
+    // Clear stale beams
+    if (state.detections.length > 0 &&
+        now - state.markerRefreshedAt > state.MARKER_STALE_MS) {
       state.detections = [];
-      clearAllMarkers();
+      clearBeams();
     }
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Billboard pills toward camera
+    billboardPills();
 
-    // LERP marker positions
-    state.markers.forEach(m => {
-      m.curX += (m.targetX - m.curX) * state.LERP_FACTOR;
-      m.curY += (m.targetY - m.curY) * state.LERP_FACTOR;
-      m.el.style.left = `${m.curX}px`;
-      m.el.style.top  = `${m.curY}px`;
-    });
+    // Breathe animation on world panels
+    breathePanels(now);
 
-    drawDetections();
-
-    if (mindarTargetVisible && mindarAnchorGroup) {
-      updatePanelsFromMindAR();
-    }
-    updateOverviewPanel();
+    // Sparkline
+    updateSparkCanvas();
   });
 }
 
-function resizeCanvas() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
+// ── Resize ────────────────────────────────────────────────────
+function onResize() {
+  cssRenderer.setSize(window.innerWidth, window.innerHeight);
+  if (lineMat) lineMat.resolution.set(window.innerWidth, window.innerHeight);
 }
 
-// Projects MindAR anchor's 3D world position to 2D screen coords (measurement plane only)
-function updatePanelsFromMindAR() {
-  const worldPos = new THREE.Vector3();
-  mindarAnchorGroup.getWorldPosition(worldPos);
-  worldPos.project(mindarCamera);
+// ── World panels setup ─────────────────────────────────────────
+function setupWorldPanels() {
+  // Overview — LEFT, yaw inward
+  ovObj = new CSS3DObject(ovPanel);
+  ovObj.position.set(-0.52, 0.28, 0.08);
+  ovObj.rotation.y = THREE.MathUtils.degToRad(20);
+  ovObj.scale.setScalar(PANEL_SCALE);
+  worldUIGroup.add(ovObj);
 
-  const screenX = ( worldPos.x + 1) / 2 * window.innerWidth;
-  const screenY = (-worldPos.y + 1) / 2 * window.innerHeight;
+  // Measurements — CENTER, slight backward tilt
+  mpObj = new CSS3DObject(mPlane);
+  mpObj.position.set(0, 0.38, 0.18);
+  mpObj.rotation.x = THREE.MathUtils.degToRad(-8);
+  mpObj.scale.setScalar(PANEL_SCALE);
+  worldUIGroup.add(mpObj);
 
-  mPlane.style.left = `${screenX}px`;
-  mPlane.style.top  = `${screenY - PLANE_OFFSET}px`;
-
-  const onScreen = screenX > -240 && screenX < window.innerWidth  + 240 &&
-                   screenY > -100 && screenY < window.innerHeight + 300;
-  mPlane.style.visibility = onScreen ? 'visible' : 'hidden';
+  // Start hidden — will reveal on target found
+  worldUIGroup.visible = false;
 }
 
-// Keeps overview panel at the direction the phone was facing at app load.
-// When the user looks away it drifts off-screen; looking back brings it back.
-function updateOverviewPanel() {
-  if (!ovAnchor.ready) return;
+// ── Target found / lost ───────────────────────────────────────
+function onTargetFound() {
+  mindarTargetVisible = true;
+  scanRing.classList.add('hidden');
+  updateStatus('Arduino opstelling detected');
+  // Stagger panel reveal
+  worldUIGroup.visible = true;
+  revealPanels();
+  syncMPlaneValues();
+  if (navigator.vibrate) navigator.vibrate([20, 10, 20]);
+}
 
-  const dGamma = currentOrient.gamma - ovAnchor.gamma0;
-  const dBeta  = currentOrient.beta  - ovAnchor.beta0;
+function onTargetLost() {
+  mindarTargetVisible = false;
+  scanRing.classList.remove('hidden');
+  updateStatus('Point at the Arduino opstelling');
+  clearBeams();
+  state.detections = [];
+  worldUIGroup.visible = false;
+  clearInterval(mPlaneSyncInterval);
+}
 
-  const sx = ovBaseX + (-dGamma * PPD_X());
-  const sy = ovBaseY + ( dBeta  * PPD_Y());
+// ── Panel entrance animation (scale + opacity tween) ──────────
+function revealPanels() {
+  const panels = [mpObj, ovObj];
+  panels.forEach((p, i) => {
+    if (!p) return;
+    p.scale.setScalar(0);
+    setTimeout(() => tweenScale(p, 0, PANEL_SCALE, 500), i * 130);
+  });
+}
 
-  ovPanel.style.left = `${sx}px`;
-  ovPanel.style.top  = `${sy}px`;
+function tweenScale(obj, from, to, ms) {
+  const start = performance.now();
+  function tick() {
+    const t = Math.min((performance.now() - start) / ms, 1);
+    const ease = 1 - Math.pow(1 - t, 3);
+    obj.scale.setScalar(from + (to - from) * ease);
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
 
-  const onScreen = sx > -240 && sx < window.innerWidth  + 240 &&
-                   sy > -120 && sy < window.innerHeight + 120;
-  ovPanel.style.visibility = onScreen ? 'visible' : 'hidden';
+// ── Breathe animation ─────────────────────────────────────────
+function breathePanels(now) {
+  if (!worldUIGroup.visible) return;
+  const breathe = 1 + Math.sin(now * 0.0008) * 0.008;
+  if (ovObj && ovObj.scale.x > 0.0001) {
+    const s = PANEL_SCALE * breathe;
+    ovObj.scale.setScalar(s);
+  }
+  if (mpObj && mpObj.scale.x > 0.0001) {
+    const s = PANEL_SCALE * breathe;
+    mpObj.scale.setScalar(s);
+  }
+}
+
+// ── Leader beam helpers ────────────────────────────────────────
+function clearBeams() {
+  beamObjects.forEach(({ line, endcap, pillObj }) => {
+    worldUIGroup.remove(line);
+    worldUIGroup.remove(endcap);
+    worldUIGroup.remove(pillObj);
+    line.geometry.dispose();
+    endcap.geometry.dispose();
+    // Remove pill DOM element from CSS3D renderer tree
+    if (pillObj.element && pillObj.element.parentNode) {
+      pillObj.element.parentNode.removeChild(pillObj.element);
+    }
+  });
+  beamObjects = [];
+}
+
+function getOrbitalPosition(index, count) {
+  const radius  = 0.38;
+  const total   = Math.max(count, 1);
+  const angle   = (index / total) * Math.PI * 2 - Math.PI / 2;
+  return new THREE.Vector3(
+    Math.cos(angle) * radius,
+    0.22 + Math.abs(Math.sin(angle)) * 0.08,
+    0.12
+  );
+}
+
+// Project a screen pixel onto the anchor's z=0 plane (local coords)
+function screenToAnchorLocal(sx, sy) {
+  const ndcX = (sx / window.innerWidth)  *  2 - 1;
+  const ndcY = (sy / window.innerHeight) * -2 + 1;
+
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), mindarCamera);
+
+  const anchorWorldPos = new THREE.Vector3();
+  mindarAnchorGroup.getWorldPosition(anchorWorldPos);
+  const normalWorld = new THREE.Vector3(0, 0, 1)
+    .applyQuaternion(mindarAnchorGroup.quaternion);
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normalWorld, anchorWorldPos);
+
+  const worldHit = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(plane, worldHit)) return null;
+
+  // world → anchor-local → worldUIGroup-local (same transform chain)
+  return mindarAnchorGroup.worldToLocal(worldHit);
+}
+
+function syncBeams(preds) {
+  clearBeams();
+  if (!mindarTargetVisible) return;
+
+  preds.forEach((pred, i) => {
+    const comp = resolveComponent(pred.class);
+    const [vx, vy, vw, vh] = pred.bbox;
+    const { x: sx, y: sy } = getScreenCoords(vx + vw / 2, vy + vh / 2);
+
+    const startPos = screenToAnchorLocal(sx, sy);
+    if (!startPos) return;
+    const endPos = getOrbitalPosition(i, preds.length);
+
+    // Line2 beam
+    const geom = new LineGeometry();
+    geom.setPositions([
+      startPos.x, startPos.y, startPos.z,
+      endPos.x,   endPos.y,   endPos.z,
+    ]);
+    const mat  = lineMat.clone();
+    const line = new Line2(geom, mat);
+    line.computeLineDistances();
+    worldUIGroup.add(line);
+
+    // Origin endcap (glowing sphere at physical component)
+    const endcapGeom = new THREE.SphereGeometry(0.009, 8, 8);
+    const endcapMat  = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.92,
+    });
+    const endcap = new THREE.Mesh(endcapGeom, endcapMat);
+    endcap.position.copy(startPos);
+    worldUIGroup.add(endcap);
+
+    // Callout pill (CSS3DObject)
+    const pillDiv = document.createElement('div');
+    pillDiv.className = 'callout-pill';
+    pillDiv.textContent = String(i + 1);
+    pillDiv.style.pointerEvents = 'auto';
+    pillDiv.addEventListener('click',    ()  => openPanel(comp));
+    pillDiv.addEventListener('touchend', (e) => { e.preventDefault(); openPanel(comp); });
+
+    const pillObj = new CSS3DObject(pillDiv);
+    pillObj.position.copy(endPos);
+    pillObj.scale.setScalar(PILL_SCALE);
+    worldUIGroup.add(pillObj);
+
+    beamObjects.push({ line, endcap, pillObj });
+  });
+}
+
+// ── Billboard pills toward camera ─────────────────────────────
+function billboardPills() {
+  if (!worldUIGroup.visible) return;
+  const parentQuat = new THREE.Quaternion();
+  worldUIGroup.getWorldQuaternion(parentQuat);
+  const invParent = parentQuat.clone().invert();
+  const camQuat   = mindarCamera.quaternion.clone();
+  const localQ    = invParent.multiply(camQuat);
+
+  beamObjects.forEach(({ pillObj }) => {
+    pillObj.quaternion.copy(localQ);
+  });
 }
 
 // ── Coordinate mapping (video → screen, object-fit: cover) ────
 function getScreenCoords(vx, vy) {
-  const vw = video.videoWidth;
-  const vh = video.videoHeight;
-  const sw = window.innerWidth;
-  const sh = window.innerHeight;
-
+  const vw = video.videoWidth,  vh = video.videoHeight;
+  const sw = window.innerWidth, sh = window.innerHeight;
   const scale   = Math.max(sw / vw, sh / vh);
   const offsetX = (vw * scale - sw) / 2;
   const offsetY = (vh * scale - sh) / 2;
-
-  return {
-    x: vx * scale - offsetX,
-    y: vy * scale - offsetY,
-  };
+  return { x: vx * scale - offsetX, y: vy * scale - offsetY };
 }
 
 // ── Roboflow YOLO detection ────────────────────────────────────
@@ -274,10 +386,8 @@ const RF_API_KEY = 'sCeSU3tBkqCWRttvc4p5';
 const RF_MODEL   = 'my-first-project-iccnb/2';
 
 async function detect() {
-  if (!state.scanning || !video || !video.videoWidth) return;
-  if (video.paused) return;
+  if (!state.scanning || !video || !video.videoWidth || video.paused) return;
   state.scanning = false;
-
   try {
     const snap = document.createElement('canvas');
     snap.width  = video.videoWidth;
@@ -287,13 +397,8 @@ async function detect() {
 
     const res = await fetch(
       `https://detect.roboflow.com/${RF_MODEL}?api_key=${RF_API_KEY}&confidence=50&overlap=30`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: base64,
-      }
+      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: base64 }
     );
-
     const data  = await res.json();
     const preds = (data.predictions || []).map(p => ({
       class: p.class,
@@ -304,8 +409,9 @@ async function detect() {
     if (preds.length > 0) {
       state.detections      = preds;
       state.markerRefreshedAt = performance.now();
-      syncMarkers(preds);
+      syncBeams(preds);
       updateStatus(`${preds.length} component${preds.length > 1 ? 's' : ''} detected — tap!`);
+      stepController.checkVerify(preds);
     }
   } catch (e) {
     console.error(e);
@@ -314,116 +420,10 @@ async function detect() {
   }
 }
 
-// ── Draw bounding boxes ────────────────────────────────────────
-function drawDetections() {
-  state.detections.forEach(pred => {
-    const [vx, vy, vw, vh] = pred.bbox;
-    const comp = resolveComponent(pred.class);
-    const tl   = getScreenCoords(vx, vy);
-    const br   = getScreenCoords(vx + vw, vy + vh);
-    const cx   = tl.x, cy = tl.y, cw = br.x - tl.x, ch = br.y - tl.y;
-    ctx.save();
-    drawCornerBrackets(cx, cy, cw, ch, Math.min(cw, ch) * 0.22, comp.color);
-    ctx.restore();
-  });
-}
-
-function drawCornerBrackets(x, y, w, h, arm, color) {
-  ctx.strokeStyle = color;
-  ctx.lineWidth   = 3;
-  ctx.lineCap     = 'round';
-  ctx.globalAlpha = 0.8;
-  const corners = [
-    [[x, y + arm], [x, y], [x + arm, y]],
-    [[x + w - arm, y], [x + w, y], [x + w, y + arm]],
-    [[x + w, y + h - arm], [x + w, y + h], [x + w - arm, y + h]],
-    [[x + arm, y + h], [x, y + h], [x, y + h - arm]],
-  ];
-  corners.forEach(pts => {
-    ctx.beginPath();
-    ctx.moveTo(...pts[0]);
-    ctx.lineTo(...pts[1]);
-    ctx.lineTo(...pts[2]);
-    ctx.stroke();
-  });
-}
-
 // ── Resolve class → component DB entry ────────────────────────
 function resolveComponent(className) {
   const id = className.toLowerCase().replace(/\s+/g, '_');
   return window.COMPONENTS_DB[id] || window.COMPONENTS_DB['unknown'];
-}
-
-// ── Markers ────────────────────────────────────────────────────
-function clearAllMarkers() {
-  state.markers.forEach(m => {
-    m.el.classList.add('fade-out');
-    setTimeout(() => m.el.remove(), 300);
-  });
-  state.markers = [];
-}
-
-function syncMarkers(preds) {
-  const classCounts = {};
-  const activeIds   = new Set();
-
-  preds.forEach(p => {
-    const classId = resolveComponent(p.class).id;
-    classCounts[classId] = (classCounts[classId] || 0) + 1;
-    activeIds.add(`marker-${classId}-${classCounts[classId]}`);
-  });
-
-  state.markers = state.markers.filter(m => {
-    if (!activeIds.has(m.id)) {
-      m.el.classList.add('fade-out');
-      setTimeout(() => m.el.remove(), 300);
-      return false;
-    }
-    return true;
-  });
-
-  const currentCounts = {};
-  preds.forEach(pred => {
-    const comp    = resolveComponent(pred.class);
-    const classId = comp.id;
-    currentCounts[classId] = (currentCounts[classId] || 0) + 1;
-    const markerId = `marker-${classId}-${currentCounts[classId]}`;
-
-    const [vx, vy, vw, vh]         = pred.bbox;
-    const { x: targetX, y: targetY } = getScreenCoords(vx + vw / 2, vy + vh / 2);
-
-    let marker = state.markers.find(m => m.id === markerId);
-    if (!marker) {
-      const el = createMarkerEl(comp, markerId);
-      markersEl.appendChild(el);
-      marker = { id: markerId, el, comp, curX: targetX, curY: targetY, targetX, targetY };
-      state.markers.push(marker);
-    }
-
-    marker.targetX      = targetX;
-    marker.targetY      = targetY;
-    marker.comp         = comp;
-    marker.el.dataset.comp = comp.id;
-  });
-}
-
-function createMarkerEl(comp, id) {
-  const el = document.createElement('div');
-  el.className = 'ar-marker';
-  el.id = id;
-  el.innerHTML = `
-    <div class="marker-ring" style="--mc:${comp.color}"></div>
-    <div class="marker-ring delay" style="--mc:${comp.color}"></div>
-    <div class="marker-dot" style="--mc:${comp.color}">
-      <span class="marker-icon">${comp.icon}</span>
-    </div>
-    <div class="marker-label" style="border-color:${comp.color};color:${comp.color}">
-      ${comp.name}
-    </div>
-  `;
-  el.addEventListener('click',    ()  => openPanel(comp));
-  el.addEventListener('touchend', (e) => { e.preventDefault(); openPanel(comp); });
-  return el;
 }
 
 // ── Detail panel ───────────────────────────────────────────────
@@ -445,13 +445,13 @@ function openPanel(comp) {
   if (navigator.vibrate) navigator.vibrate([20, 10, 20]);
 }
 
-function closePanel() {
+function closePanelFn() {
   panel.classList.remove('open');
   setTimeout(() => panel.classList.add('hidden'), 350);
 }
 
-closeBtn.addEventListener('click', closePanel);
-document.getElementById('panel-bg-blur').addEventListener('click', closePanel);
+closeBtn.addEventListener('click', closePanelFn);
+document.getElementById('panel-bg-blur').addEventListener('click', closePanelFn);
 
 // ── Helpers ────────────────────────────────────────────────────
 function updateStatus(msg) { hudStatus.textContent = msg; }
@@ -462,35 +462,84 @@ function hideLoader() {
 }
 
 // ── MQTT ──────────────────────────────────────────────────────
-let latestUS  = '— cm';
-let latestLED = '—';
+let latestUS   = '—';
+let latestLED  = '—';
+const usHistory = [];
 
 function connectMQTT() {
   const client = mqtt.connect(
     'wss://0f23b53beddd48cebc845a657cd08ab6.s1.eu.hivemq.cloud:8884/mqtt',
     { username: 'CodeAcces', password: 'CodeAcces1', reconnectPeriod: 3000 }
   );
-  client.on('connect', () => client.subscribe('hospital/sensors/ultrasonic'));
+  client.on('connect', () => {
+    client.subscribe('hospital/sensors/ultrasonic');
+    mqttDot.classList.add('connected');
+  });
   client.on('message', (_t, payload) => {
     const val = parseFloat(payload.toString());
-    if (!isNaN(val)) latestUS = val === -1 ? '— cm' : `${val.toFixed(1)} cm`;
+    if (!isNaN(val)) {
+      latestUS = val === -1 ? '—' : val.toFixed(1);
+      usHistory.push(val === -1 ? null : val);
+      if (usHistory.length > 40) usHistory.shift();
+    }
   });
-  client.on('error', err => console.warn('MQTT:', err));
+  client.on('error',        () => mqttDot.classList.remove('connected'));
+  client.on('offline',      () => mqttDot.classList.remove('connected'));
+  client.on('reconnect',    () => mqttDot.classList.remove('connected'));
 }
 
-// ── Measurement plane ─────────────────────────────────────────
-mPlaneReset.addEventListener('click', () => {
-  mPlane.classList.add('hidden');
-  clearInterval(mPlaneSyncInterval);
-});
-
+// ── Measurement panel sync ────────────────────────────────────
 let mPlaneSyncInterval = null;
+
 function syncMPlaneValues() {
   clearInterval(mPlaneSyncInterval);
   mPlaneSyncInterval = setInterval(() => {
-    mPlaneUS.textContent  = latestUS;
+    mPlaneUS.innerHTML  = latestUS === '—' ? '—' : `${latestUS}<em>cm</em>`;
     mPlaneLED.textContent = latestLED;
+    if (latestLED === 'ON') {
+      ledPulse.classList.add('on');
+    } else {
+      ledPulse.classList.remove('on');
+    }
   }, 200);
+}
+
+mPlaneReset.addEventListener('click', () => {
+  clearInterval(mPlaneSyncInterval);
+  worldUIGroup.visible = false;
+});
+
+// ── Sparkline canvas ──────────────────────────────────────────
+const sparkCanvas = document.getElementById('us-spark');
+const sparkCtx    = sparkCanvas ? sparkCanvas.getContext('2d') : null;
+
+function updateSparkCanvas() {
+  if (!sparkCtx || usHistory.length < 2) return;
+  const w = sparkCanvas.offsetWidth  || 100;
+  const h = sparkCanvas.offsetHeight || 32;
+  if (sparkCanvas.width !== w)  sparkCanvas.width  = w;
+  if (sparkCanvas.height !== h) sparkCanvas.height = h;
+
+  const vals = usHistory.filter(v => v !== null);
+  if (vals.length < 2) return;
+
+  const min = Math.min(...vals);
+  const max = Math.max(...vals) || min + 1;
+  const step = w / (vals.length - 1);
+
+  sparkCtx.clearRect(0, 0, w, h);
+  sparkCtx.beginPath();
+  sparkCtx.strokeStyle = 'rgba(125,211,252,0.7)';
+  sparkCtx.lineWidth   = 1.5;
+  sparkCtx.lineCap     = 'round';
+  sparkCtx.lineJoin    = 'round';
+
+  vals.forEach((v, i) => {
+    const x = i * step;
+    const y = h - ((v - min) / (max - min)) * (h - 4) - 2;
+    i === 0 ? sparkCtx.moveTo(x, y) : sparkCtx.lineTo(x, y);
+  });
+  sparkCtx.stroke();
 }
 
 // ── AI Panel ──────────────────────────────────────────────────
@@ -504,74 +553,88 @@ const aiCloseBtn   = document.getElementById('ai-close-btn');
 const aiInput      = document.getElementById('ai-input');
 const aiSendBtn    = document.getElementById('ai-send-btn');
 const aiResponseEl = document.getElementById('ai-response-text');
-const aiBtn        = document.getElementById('ai-btn');
-const micBtn       = document.getElementById('mic-btn');
 
-aiBtn.addEventListener('click', openAIPanel);
 aiCloseBtn.addEventListener('click', closeAIPanel);
-aiPanelBg.addEventListener('click', closeAIPanel);
-aiSendBtn.addEventListener('click', sendAIMessage);
-aiInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendAIMessage(); });
+aiPanelBg.addEventListener('click',  closeAIPanel);
+aiSendBtn.addEventListener('click',  sendAIMessage);
+aiInput.addEventListener('keydown',  e => { if (e.key === 'Enter') sendAIMessage(); });
+
+// Suggestion chips
+document.querySelectorAll('.ai-suggestions .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    aiInput.value = chip.textContent.trim();
+    openAIPanel();
+    sendAIMessage();
+  });
+});
 
 function openAIPanel() {
   aiPanel.classList.remove('hidden');
   requestAnimationFrame(() => aiPanel.classList.add('open'));
-  aiInput.focus();
+  setTimeout(() => aiInput.focus(), 450);
 }
 
 function closeAIPanel() {
   aiPanel.classList.remove('open');
-  setTimeout(() => aiPanel.classList.add('hidden'), 380);
+  setTimeout(() => aiPanel.classList.add('hidden'), 400);
 }
 
 function buildSystemPrompt() {
-  const detected = state.markers.map(m => m.comp.fullName).join(', ') || 'nothing yet';
+  const detected = state.detections.map(d => resolveComponent(d.class).fullName).join(', ') || 'nothing yet';
   return `You are an expert Arduino and electronics assistant embedded in an AR app.
-Current detected components: ${detected}.
-Ultrasonic sensor reading: ${latestUS}.
-LED active: ${latestLED}.
-Be concise, helpful, and practical. Answer in plain text, no markdown.`;
+Currently detected: ${detected}. Ultrasonic: ${latestUS} cm. LED: ${latestLED}.
+Be concise and practical. Plain text, no markdown.`;
 }
 
 async function sendAIMessage() {
   const question = aiInput.value.trim();
   if (!question) return;
+
+  // Add user bubble
+  const userBubble = document.createElement('div');
+  userBubble.className = 'ai-bubble ai-bubble-user';
+  userBubble.textContent = question;
+  aiResponseEl.parentElement.appendChild(userBubble);
   aiInput.value = '';
-  aiResponseEl.innerHTML = `<div class="ai-thinking"><span></span><span></span><span></span></div>`;
-  aiResponseEl.classList.remove('active');
+
+  // Add thinking bubble
+  const thinkBubble = document.createElement('div');
+  thinkBubble.className = 'ai-bubble ai-bubble-assistant';
+  thinkBubble.innerHTML = `<div class="ai-thinking"><span></span><span></span><span></span></div>`;
+  aiResponseEl.parentElement.appendChild(thinkBubble);
+
+  const responseArea = document.getElementById('ai-response-area');
+  responseArea.scrollTop = responseArea.scrollHeight;
 
   try {
     const res = await fetch(LLM_API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type':  'application/json',
-        'Authorization': `Bearer ${LLM_API_KEY}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LLM_API_KEY}` },
       body: JSON.stringify({
-        model:      LLM_MODEL,
-        messages:   [
+        model: LLM_MODEL,
+        messages: [
           { role: 'system', content: buildSystemPrompt() },
           { role: 'user',   content: question },
         ],
         max_tokens: 300,
       }),
     });
-    const data   = await res.json();
-    const answer = data.choices?.[0]?.message?.content || 'No response received.';
-    aiResponseEl.textContent = answer;
-    aiResponseEl.classList.add('active');
-  } catch (err) {
-    aiResponseEl.textContent = 'Could not reach the AI. Check your API key or connection.';
-    console.error(err);
+    const data = await res.json();
+    thinkBubble.textContent = data.choices?.[0]?.message?.content || 'No response.';
+    thinkBubble.classList.add('active');
+  } catch {
+    thinkBubble.textContent = 'Could not reach the AI. Check API key or connection.';
   }
+  responseArea.scrollTop = responseArea.scrollHeight;
 }
 
 // ── Voice input ────────────────────────────────────────────────
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const micBtn = document.getElementById('mic-btn');
 
 if (SpeechRecognition) {
-  const recognition      = new SpeechRecognition();
-  recognition.lang       = 'en-US';
+  const recognition = new SpeechRecognition();
+  recognition.lang  = 'en-US';
   recognition.interimResults = false;
 
   micBtn.addEventListener('click', () => {
@@ -585,36 +648,159 @@ if (SpeechRecognition) {
 
   recognition.addEventListener('start',  ()  => micBtn.classList.add('recording'));
   recognition.addEventListener('end',    ()  => micBtn.classList.remove('recording'));
-  recognition.addEventListener('result', e   => {
-    aiInput.value = e.results[0][0].transcript;
-    sendAIMessage();
-  });
-  recognition.addEventListener('error',  e   => {
-    console.warn('Speech error:', e.error);
-    micBtn.classList.remove('recording');
-  });
+  recognition.addEventListener('result', e   => { aiInput.value = e.results[0][0].transcript; sendAIMessage(); });
+  recognition.addEventListener('error',  ()  => micBtn.classList.remove('recording'));
 } else {
-  micBtn.title   = 'Speech recognition not supported in this browser';
   micBtn.style.opacity = '0.4';
+  micBtn.title = 'Speech not supported';
 }
 
-// ── Start ─────────────────────────────────────────────────────
-// Gate startup behind a user tap so iOS will grant DeviceOrientation
-// permission (required for gyroscope-based world anchoring).
+// ── Action Dock wiring ────────────────────────────────────────
+document.getElementById('home-btn').addEventListener('click', () => {
+  worldUIGroup.visible = !worldUIGroup.visible;
+  document.getElementById('home-btn').classList.toggle('active', worldUIGroup.visible);
+});
+
+document.getElementById('ai-btn').addEventListener('click', () => {
+  if (aiPanel.classList.contains('hidden')) openAIPanel();
+  else closeAIPanel();
+});
+
+document.getElementById('step-btn').addEventListener('click', () => {
+  stepController.toggle();
+  document.getElementById('step-btn').classList.toggle('active', stepController.active);
+});
+
+document.getElementById('share-btn').addEventListener('click', () => {
+  const url = location.href;
+  if (navigator.share) {
+    navigator.share({ title: 'Arduino AR Explorer', url });
+  } else {
+    navigator.clipboard?.writeText(url);
+    updateStatus('Link copied!');
+    setTimeout(() => updateStatus('Arduino opstelling detected'), 2000);
+  }
+});
+
+// ── Step controller ────────────────────────────────────────────
+const stepBanner  = document.getElementById('step-banner');
+const sbCurrent   = document.getElementById('sb-current');
+const sbTotal     = document.getElementById('sb-total');
+const sbTitle     = document.getElementById('sb-title');
+const sbStatus    = document.getElementById('sb-status');
+const sbDesc      = document.getElementById('sb-desc');
+const sbVerify    = document.getElementById('sb-verify');
+const sbFill      = document.getElementById('sb-fill');
+
+const stepController = {
+  active:  false,
+  current: 0,
+  verified: false,
+
+  toggle() {
+    this.active = !this.active;
+    if (this.active) {
+      this.current = 0;
+      this.verified = false;
+      this.render();
+      stepBanner.classList.add('visible');
+    } else {
+      stepBanner.classList.remove('visible');
+    }
+  },
+
+  render() {
+    if (!window.STEPS_DB) return;
+    const step = window.STEPS_DB[this.current];
+    if (!step) return;
+    sbCurrent.textContent = step.id;
+    sbTotal.textContent   = step.total;
+    sbTitle.textContent   = step.title;
+    sbDesc.textContent    = step.description;
+    sbVerify.textContent  = step.verifyLabel;
+    sbVerify.disabled     = false;
+    sbFill.style.width    = `${(step.id / step.total) * 100}%`;
+    this.setStatus('ready', 'Ready to scan');
+  },
+
+  setStatus(cls, text) {
+    sbStatus.className = `sb-status ${cls}`;
+    sbStatus.textContent = text;
+  },
+
+  checkVerify(preds) {
+    if (!this.active || this.verified) return;
+    const step = window.STEPS_DB?.[this.current];
+    if (!step || step.requires.length === 0) return;
+
+    const detected = preds.map(p => resolveComponent(p.class).id);
+    const allFound = step.requires.every(r => detected.includes(r));
+
+    if (allFound) {
+      this.setStatus('done', 'Verified ✓');
+    } else {
+      const missing = step.requires.filter(r => !detected.includes(r));
+      this.setStatus('waiting', `Waiting: ${missing.join(', ')}`);
+    }
+  },
+
+  next() {
+    if (!window.STEPS_DB) return;
+    if (this.current < window.STEPS_DB.length - 1) {
+      this.current++;
+      this.verified = false;
+      this.render();
+    } else {
+      this.setStatus('done', 'All steps complete!');
+      sbVerify.textContent = 'Done';
+      sbVerify.disabled    = true;
+      sbFill.style.width   = '100%';
+    }
+  },
+};
+
+sbVerify.addEventListener('click', () => {
+  const step = window.STEPS_DB?.[stepController.current];
+  if (!step) return;
+
+  if (step.requires.length === 0) {
+    stepController.setStatus('done', 'Verified ✓');
+    setTimeout(() => stepController.next(), 700);
+    return;
+  }
+
+  const detected = state.detections.map(p => resolveComponent(p.class).id);
+  const allFound = step.requires.every(r => detected.includes(r));
+
+  if (allFound) {
+    stepController.setStatus('done', 'Verified ✓');
+    stepController.verified = true;
+    if (navigator.vibrate) navigator.vibrate([30, 20, 60]);
+    setTimeout(() => stepController.next(), 900);
+  } else {
+    const missing = step.requires.filter(r => !detected.includes(r));
+    stepController.setStatus('waiting', `Missing: ${missing.join(', ')}`);
+    if (navigator.vibrate) navigator.vibrate(80);
+  }
+});
+
+// ── iOS motion permission + startup gate ──────────────────────
+async function requestSensorPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try { await DeviceOrientationEvent.requestPermission(); } catch {}
+  }
+}
+
 const loaderRing = document.getElementById('loader-ring');
 const loaderText = document.getElementById('loader-text');
 const loaderSub  = document.getElementById('loader-sub');
 
 loadScreen.addEventListener('click', async () => {
-  // Switch to spinner / loading state
   loadScreen.classList.remove('tap-ready');
   loaderRing.style.opacity = '1';
   loaderText.textContent   = 'Initializing AR';
-  loaderSub.textContent    = 'Loading AR tracking engine…';
-  loaderSub.style.animation = 'none';
-
-  // Request iOS motion permission — MUST be inside a user gesture
+  loaderSub.textContent    = 'Loading tracking engine…';
   await requestSensorPermission();
-
   boot();
 }, { once: true });

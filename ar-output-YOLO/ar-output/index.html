@@ -10,29 +10,69 @@
 
 <body>
 
-  <!-- Overlay canvas (bounding boxes) — sits above MindAR's camera canvas -->
-  <canvas id="overlay"></canvas>
-
-  <!-- HUD -->
+  <!-- HUD top bar -->
   <div id="hud">
     <div id="hud-title">
       <span class="dot"></span>
       AR Explorer
     </div>
-    <div id="hud-status">Point at an Arduino component</div>
+    <div id="hud-status">Point at the Arduino opstelling</div>
   </div>
 
-  <!-- Scanning ring (center) -->
+  <!-- Scan reticle (center, hides on target found) -->
   <div id="scan-ring">
     <div class="ring r1"></div>
-    <div class="ring r2"></div>
+    <div class="ring r2 delay"></div>
     <div class="crosshair"></div>
   </div>
 
-  <!-- AR Marker bubbles container -->
-  <div id="markers-container"></div>
+  <!-- ── World-anchored panels (will be wrapped in CSS3DObject) ── -->
 
-  <!-- Detail panel -->
+  <!-- Overview panel — LEFT slot -->
+  <div id="overview-panel" class="glass-card floating-panel">
+    <div class="fp-header">
+      <span class="fp-eyebrow">Project</span>
+      <span class="fp-chip">Live</span>
+    </div>
+    <h2 class="fp-title">Arduino AR Explorer</h2>
+    <p class="fp-body">
+      Real-time component detection with YOLO, streaming sensor data
+      over MQTT. Tap a callout to inspect any component.
+    </p>
+    <div class="fp-meta">
+      <div><span>Model</span><strong>YOLO v8</strong></div>
+      <div><span>Broker</span><strong>HiveMQ</strong></div>
+      <div><span>Runtime</span><strong>Web AR</strong></div>
+    </div>
+  </div>
+
+  <!-- Measurements panel — CENTER slot -->
+  <div id="measurement-plane" class="glass-card floating-panel">
+    <div class="fp-header">
+      <span class="fp-eyebrow">Opstelling · Live</span>
+      <button id="mplane-reset-btn" class="fp-icon-btn">✕</button>
+    </div>
+    <div class="metric-grid">
+      <div class="metric">
+        <span class="metric-label">Ultrasonic</span>
+        <span class="metric-value" id="mplane-us">—<em>cm</em></span>
+        <canvas class="metric-sparkline" id="us-spark"></canvas>
+      </div>
+      <div class="metric">
+        <span class="metric-label">LED State</span>
+        <span class="metric-value" id="mplane-led" style="font-size:20px">—</span>
+        <div class="led-indicator" id="led-pulse"></div>
+      </div>
+    </div>
+    <div class="fp-footer">
+      <span class="mqtt-dot" id="mqtt-dot"></span>
+      <span>HiveMQ · <code>hospital/sensors/ultrasonic</code></span>
+    </div>
+  </div>
+
+  <!-- ── Screen-space UI ──────────────────────────────────────── -->
+
+  <!-- Detail panel (component info bottom sheet) -->
   <div id="detail-panel" class="hidden">
     <div id="panel-bg-blur"></div>
     <div id="panel-content">
@@ -54,70 +94,32 @@
     </div>
   </div>
 
-  <!-- Anchored measurement plane -->
-  <div id="measurement-plane" class="hidden">
-    <div class="mplane-header">
-      <div class="mplane-title-row">
-        <span class="mplane-dot"></span>
-        <span class="mplane-title">OPSTELLING</span>
-      </div>
-      <button id="mplane-reset-btn">✕</button>
+  <!-- Step banner (above dock) -->
+  <div id="step-banner">
+    <div class="sb-top">
+      <span class="sb-counter">Step <strong id="sb-current">1</strong>/<span id="sb-total">6</span></span>
+      <span class="sb-title" id="sb-title"></span>
+      <span class="sb-status ready" id="sb-status">Ready to scan</span>
     </div>
-    <div class="mplane-rows">
-      <div class="mplane-row">
-        <span class="mplane-label">Ultrasonic</span>
-        <span class="mplane-value" id="mplane-us">— cm</span>
-      </div>
-      <div class="mplane-row">
-        <span class="mplane-label">LED Active</span>
-        <span class="mplane-value" id="mplane-led">—</span>
-      </div>
+    <div class="sb-bottom">
+      <p id="sb-desc"></p>
+      <button id="sb-verify" class="btn-primary">Verify</button>
     </div>
+    <div class="sb-progress"><div id="sb-fill" style="width:0%"></div></div>
   </div>
 
-  <!-- Overview panel (large, ground-parallel, ~1m away) -->
-  <div id="overview-panel" class="hidden">
-    <div class="ov-header">
-      <span class="ov-dot"></span>
-      <span class="ov-title">ARDUINO AR EXPLORER</span>
-    </div>
-    <p class="ov-desc">
-      Real-time AR component detection met een Arduino-opstelling. De HC-SR04 ultrasone sensor meet afstand en stuurt data via seriële poort naar een Python MQTT-bridge. De data wordt gepubliceerd op HiveMQ Cloud en live weergegeven in deze AR-omgeving via WebSocket.
-    </p>
-    <div class="ov-stats">
-      <div class="ov-stat">
-        <span class="ov-stat-label">Model</span>
-        <span class="ov-stat-value">Roboflow YOLO</span>
-      </div>
-      <div class="ov-stat">
-        <span class="ov-stat-label">Broker</span>
-        <span class="ov-stat-value">HiveMQ Cloud</span>
-      </div>
-      <div class="ov-stat">
-        <span class="ov-stat-label">Protocol</span>
-        <span class="ov-stat-value">MQTT / WSS</span>
-      </div>
-      <div class="ov-stat">
-        <span class="ov-stat-label">Platform</span>
-        <span class="ov-stat-value">Web AR</span>
-      </div>
-    </div>
+  <!-- Action dock -->
+  <div id="action-dock">
+    <button class="dock-btn" id="home-btn" title="Overview" aria-label="Overview">⌂</button>
+    <button class="dock-btn" id="ai-btn" title="Ask AI" aria-label="Ask AI">✦</button>
+    <button class="dock-btn" id="mic-btn" title="Voice input" aria-label="Voice input">🎙</button>
+    <button class="dock-btn" id="step-btn" title="Step guide" aria-label="Step guide">☰</button>
+    <button class="dock-btn" id="share-btn" title="Share" aria-label="Share">↗</button>
   </div>
 
-  <!-- Bottom action bar -->
-  <div id="action-bar">
-    <button id="ai-btn" aria-label="Ask AI">
-      <span class="action-icon">✦</span>
-      <span class="action-label">Ask AI</span>
-    </button>
-    <button id="mic-btn" aria-label="Voice input">
-      <span class="action-icon">🎙</span>
-    </button>
-  </div>
-
-  <!-- AI Panel -->
+  <!-- AI Panel (bottom sheet) -->
   <div id="ai-panel" class="hidden">
-    <div id="ai-panel-bg" ></div>
+    <div id="ai-panel-bg"></div>
     <div id="ai-panel-content">
       <div id="ai-panel-header">
         <div class="ai-header-title">
@@ -127,7 +129,14 @@
         <button id="ai-close-btn">✕</button>
       </div>
       <div id="ai-response-area">
-        <div id="ai-response-text">Ask me anything about the detected components or your circuit.</div>
+        <div id="ai-response-text" class="ai-bubble ai-bubble-assistant">
+          Ask me anything about the detected components or your circuit.
+        </div>
+      </div>
+      <div class="ai-suggestions">
+        <button class="chip">Explain this circuit</button>
+        <button class="chip">Why a 220Ω resistor?</button>
+        <button class="chip">What's next?</button>
       </div>
       <div id="ai-input-row">
         <input id="ai-input" type="text" placeholder="Ask about your circuit…" autocomplete="off" />
@@ -145,7 +154,6 @@
     </div>
   </div>
 
-
   <script type="importmap">
   {
     "imports": {
@@ -156,6 +164,7 @@
   </script>
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="js/components-db.js"></script>
+  <script src="js/steps-db.js"></script>
   <script type="module" src="js/ar-engine.js"></script>
 </body>
 </html>
