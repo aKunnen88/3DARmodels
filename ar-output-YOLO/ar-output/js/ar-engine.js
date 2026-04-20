@@ -464,7 +464,7 @@ function tickScreenMarkers() {
   const cardH   = 130;
   const BEAM_GAP = 18;
   ssTargetX = centX;
-  ssTargetY = Math.max(cardH + 20, centY - 220);
+  ssTargetY = Math.max(cardH + 20, centY - 440);
 
   ssSensorCardX += (ssTargetX - ssSensorCardX) * LERP;
   ssSensorCardY += (ssTargetY - ssSensorCardY) * LERP;
