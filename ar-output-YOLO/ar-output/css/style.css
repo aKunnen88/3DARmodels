@@ -245,7 +245,18 @@ html, body {
   color: var(--accent);
 }
 
-/* ── Central sensor beam panel ───────────────────────────────── */
+/* ── Screen-space sensor card (no MindAR needed) ─────────────── */
+.ss-sensor-card {
+  position: fixed;
+  z-index: 25;
+  width: 220px;
+  padding: 16px 18px 14px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 0.3s;
+}
+
+/* ── Central sensor beam panel (CSS3DObject, MindAR-anchored) ── */
 .sensor-panel {
   width: 260px;
   padding: 18px 20px 16px;

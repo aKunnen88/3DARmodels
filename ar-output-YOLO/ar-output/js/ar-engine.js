@@ -74,6 +74,17 @@ let   screenMarkers = [];   // { id, el, comp, detX, detY, curX, curY, targetX, 
 const LERP = 0.14;
 const PILL_OFFSET_Y = 78;
 
+// ── Screen-space sensor card ───────────────────────────────────
+const ssSensorCard  = document.getElementById('ss-sensor-card');
+const ssUSValue     = document.getElementById('ss-us-value');
+const ssLedDot      = document.getElementById('ss-led-dot');
+const ssLedState    = document.getElementById('ss-led-state');
+let   ssSensorCardX = 0;   // current smoothed X
+let   ssSensorCardY = 0;
+let   ssTargetX     = 0;
+let   ssTargetY     = 0;
+let   ssVisible     = false;
+
 // ── Boot ──────────────────────────────────────────────────────
 async function boot() {
   try {
@@ -366,6 +377,8 @@ function clearScreenMarkers() {
     setTimeout(() => m.el.remove(), 250);
   });
   screenMarkers = [];
+  ssVisible = false;
+  if (ssSensorCard) ssSensorCard.style.display = 'none';
 }
 
 function syncScreenMarkers(preds) {
@@ -435,43 +448,96 @@ function syncScreenMarkers(preds) {
 function tickScreenMarkers() {
   if (!beamCtx) return;
 
-  // Keep canvas sized to window
   if (beamCanvas.width  !== window.innerWidth)  beamCanvas.width  = window.innerWidth;
   if (beamCanvas.height !== window.innerHeight) beamCanvas.height = window.innerHeight;
 
   beamCtx.clearRect(0, 0, beamCanvas.width, beamCanvas.height);
   if (screenMarkers.length === 0) return;
 
+  // ── Compute centroid of all detections ──────────────────────
+  let sumX = 0, sumY = 0;
+  screenMarkers.forEach(m => { sumX += m.detX; sumY += m.detY; });
+  const centX = sumX / screenMarkers.length;
+  const centY = sumY / screenMarkers.length;
+
+  // ── Sensor card: float above centroid ───────────────────────
+  const cardH   = 130;
+  const BEAM_GAP = 18;
+  ssTargetX = centX;
+  ssTargetY = Math.max(cardH + 20, centY - 220);
+
+  ssSensorCardX += (ssTargetX - ssSensorCardX) * LERP;
+  ssSensorCardY += (ssTargetY - ssSensorCardY) * LERP;
+
+  if (!ssVisible) {
+    ssVisible = true;
+    if (ssSensorCard) ssSensorCard.style.display = 'block';
+  }
+  if (ssSensorCard) {
+    ssSensorCard.style.left = `${ssSensorCardX}px`;
+    ssSensorCard.style.top  = `${ssSensorCardY}px`;
+  }
+
+  // ── Update sensor values ────────────────────────────────────
+  if (ssUSValue)  ssUSValue.textContent  = latestUS === '—' ? '—' : latestUS;
+  if (ssLedState) ssLedState.textContent = latestLED || '—';
+  if (ssLedDot)   ssLedDot.classList.toggle('on', latestLED === 'ON');
+
+  // ── Central beam: centroid → card bottom ────────────────────
+  const beamTopY    = ssSensorCardY + cardH + BEAM_GAP;
+  const beamBottomY = centY;
+
+  beamCtx.save();
+  beamCtx.strokeStyle = 'rgba(255,255,255,0.92)';
+  beamCtx.lineWidth   = 3;
+  beamCtx.lineCap     = 'round';
+  beamCtx.shadowColor = 'rgba(255,255,255,0.6)';
+  beamCtx.shadowBlur  = 8;
+  beamCtx.beginPath();
+  beamCtx.moveTo(ssSensorCardX, beamTopY);
+  beamCtx.lineTo(centX, beamBottomY);
+  beamCtx.stroke();
+  beamCtx.restore();
+
+  // Glowing base dot at centroid
+  beamCtx.fillStyle = 'rgba(255,255,255,0.95)';
+  beamCtx.shadowColor = 'rgba(255,255,255,0.7)';
+  beamCtx.shadowBlur  = 10;
+  beamCtx.beginPath();
+  beamCtx.arc(centX, centY, 5, 0, Math.PI * 2);
+  beamCtx.fill();
+
+  // Soft outer ring
+  beamCtx.strokeStyle = 'rgba(255,255,255,0.3)';
+  beamCtx.lineWidth   = 1.5;
+  beamCtx.shadowBlur  = 0;
+  beamCtx.beginPath();
+  beamCtx.arc(centX, centY, 11, 0, Math.PI * 2);
+  beamCtx.stroke();
+
+  // ── Per-marker pill beams ────────────────────────────────────
   screenMarkers.forEach(m => {
     m.curX += (m.targetX - m.curX) * LERP;
     m.curY += (m.targetY - m.curY) * LERP;
     m.el.style.left = `${m.curX}px`;
     m.el.style.top  = `${m.curY}px`;
 
-    // White beam: detection → pill
-    beamCtx.strokeStyle = 'rgba(255,255,255,0.88)';
-    beamCtx.lineWidth   = 2.5;
+    beamCtx.strokeStyle = 'rgba(255,255,255,0.75)';
+    beamCtx.lineWidth   = 1.8;
     beamCtx.lineCap     = 'round';
-    beamCtx.shadowColor = 'rgba(255,255,255,0.55)';
-    beamCtx.shadowBlur  = 5;
+    beamCtx.shadowBlur  = 4;
+    beamCtx.shadowColor = 'rgba(255,255,255,0.4)';
     beamCtx.beginPath();
     beamCtx.moveTo(m.detX, m.detY);
-    beamCtx.lineTo(m.curX, m.curY + 19);  // +19 to land on pill bottom, not center
+    beamCtx.lineTo(m.curX, m.curY + 19);
     beamCtx.stroke();
     beamCtx.shadowBlur = 0;
 
-    // Glowing dot at physical component
-    beamCtx.fillStyle = 'rgba(255,255,255,0.95)';
+    // Small dot at component
+    beamCtx.fillStyle = 'rgba(255,255,255,0.9)';
     beamCtx.beginPath();
-    beamCtx.arc(m.detX, m.detY, 4.5, 0, Math.PI * 2);
+    beamCtx.arc(m.detX, m.detY, 3.5, 0, Math.PI * 2);
     beamCtx.fill();
-
-    // Soft ring around the dot
-    beamCtx.strokeStyle = 'rgba(255,255,255,0.35)';
-    beamCtx.lineWidth   = 1.2;
-    beamCtx.beginPath();
-    beamCtx.arc(m.detX, m.detY, 9, 0, Math.PI * 2);
-    beamCtx.stroke();
   });
 }
 

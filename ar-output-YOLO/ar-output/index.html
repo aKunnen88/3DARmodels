@@ -74,6 +74,21 @@
     </div>
   </div>
 
+  <!-- Screen-space sensor card — shown whenever YOLO detects components -->
+  <div id="ss-sensor-card" class="glass-card ss-sensor-card" style="display:none">
+    <div class="sbp-eyebrow">LIVE SENSOR DATA</div>
+    <div class="sbp-us">
+      <span class="sbp-us-value" id="ss-us-value">—</span>
+      <span class="sbp-us-unit">cm</span>
+    </div>
+    <div class="sbp-divider"></div>
+    <div class="sbp-led-row">
+      <div class="led-indicator" id="ss-led-dot"></div>
+      <span class="sbp-led-label">LED</span>
+      <span class="sbp-led-state" id="ss-led-state">—</span>
+    </div>
+  </div>
+
   <!-- Central sensor beam panel (always visible when target locked) -->
   <div id="sensor-beam-panel" class="glass-card sensor-panel">
     <div class="sbp-eyebrow">LIVE SENSOR DATA</div>
