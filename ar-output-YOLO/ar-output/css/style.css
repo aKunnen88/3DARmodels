@@ -245,6 +245,9 @@ html, body {
   color: var(--accent);
 }
 
+/* ── Verification callout panel ──────────────────────────────── */
+.verif-panel { width: 280px; }
+
 /* ── Screen-space markers (fallback when MindAR target not locked) ── */
 #markers-container {
   position: fixed; inset: 0;

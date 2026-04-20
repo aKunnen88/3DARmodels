@@ -228,6 +228,7 @@ function onTargetLost() {
   scanRing.classList.remove('hidden');
   updateStatus('Point at the Arduino opstelling');
   clearBeams();
+  hideVerificationCallout();
   state.detections = [];
   worldUIGroup.visible = false;
   clearInterval(mPlaneSyncInterval);
@@ -299,7 +300,7 @@ function syncScreenMarkers(preds) {
 
   // Add / update
   const cur = {};
-  preds.forEach((pred, i) => {
+  preds.forEach((pred) => {
     const comp = resolveComponent(pred.class);
     cur[comp.id] = (cur[comp.id] || 0) + 1;
     const markerId = `sm-${comp.id}-${cur[comp.id]}`;
@@ -314,7 +315,7 @@ function syncScreenMarkers(preds) {
 
       const pill = document.createElement('div');
       pill.className = 'ar-marker-pill';
-      pill.textContent = String(i + 1);
+      pill.textContent = comp.icon;
       pill.addEventListener('click',    ()  => openPanel(comp));
       pill.addEventListener('touchend', (e) => { e.preventDefault(); openPanel(comp); });
 
@@ -432,7 +433,7 @@ function syncBeams(preds) {
     // Callout pill (CSS3DObject)
     const pillDiv = document.createElement('div');
     pillDiv.className = 'callout-pill';
-    pillDiv.textContent = String(i + 1);
+    pillDiv.textContent = comp.icon;
     pillDiv.style.pointerEvents = 'auto';
     pillDiv.addEventListener('click',    ()  => openPanel(comp));
     pillDiv.addEventListener('touchend', (e) => { e.preventDefault(); openPanel(comp); });
@@ -771,6 +772,70 @@ document.getElementById('share-btn').addEventListener('click', () => {
   }
 });
 
+// ── Verification callout (beam + panel after all steps done) ──────────────
+let verifBeam    = null;
+let verifEndcap  = null;
+let verifPanelObj = null;
+let verifSyncInterval = null;
+
+const verifEl = document.getElementById('verification-panel');
+const verifUS  = document.getElementById('verif-us');
+const verifLedText = document.getElementById('verif-led-text');
+const verifLedDot  = document.getElementById('verif-led-dot');
+
+function showVerificationCallout() {
+  if (!worldUIGroup) return;
+
+  // Panel position: directly above breadboard center, tilted toward viewer
+  const panelPos = new THREE.Vector3(0, 0.42, 0.22);
+  // Beam: from (0,0,0) breadboard center up to panel
+  const beamStart = new THREE.Vector3(0, 0.01, 0);
+
+  // White beam
+  const geom = new LineGeometry();
+  geom.setPositions([
+    beamStart.x, beamStart.y, beamStart.z,
+    panelPos.x,  panelPos.y,  panelPos.z,
+  ]);
+  verifBeam = new Line2(geom, lineMat.clone());
+  verifBeam.computeLineDistances();
+  worldUIGroup.add(verifBeam);
+
+  // Glowing endcap at breadboard center
+  const capGeom = new THREE.SphereGeometry(0.013, 10, 10);
+  const capMat  = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 });
+  verifEndcap = new THREE.Mesh(capGeom, capMat);
+  verifEndcap.position.copy(beamStart);
+  worldUIGroup.add(verifEndcap);
+
+  // CSS3D panel
+  verifPanelObj = new CSS3DObject(verifEl);
+  verifPanelObj.position.copy(panelPos);
+  verifPanelObj.rotation.x = THREE.MathUtils.degToRad(-8);
+  verifPanelObj.scale.setScalar(PANEL_SCALE);
+  worldUIGroup.add(verifPanelObj);
+  tweenScale(verifPanelObj, 0, PANEL_SCALE, 500);
+
+  // Live value sync
+  clearInterval(verifSyncInterval);
+  verifSyncInterval = setInterval(() => {
+    verifUS.innerHTML = latestUS === '—' ? '—' : `${latestUS}<em>cm</em>`;
+    verifLedText.textContent = latestLED || '—';
+    if (latestLED === 'ON') {
+      verifLedDot.classList.add('on');
+    } else {
+      verifLedDot.classList.remove('on');
+    }
+  }, 200);
+}
+
+function hideVerificationCallout() {
+  clearInterval(verifSyncInterval);
+  if (verifBeam)    { worldUIGroup.remove(verifBeam);    verifBeam.geometry.dispose();    verifBeam = null; }
+  if (verifEndcap)  { worldUIGroup.remove(verifEndcap);  verifEndcap.geometry.dispose();  verifEndcap = null; }
+  if (verifPanelObj){ worldUIGroup.remove(verifPanelObj); verifPanelObj = null; }
+}
+
 // ── Step controller ────────────────────────────────────────────
 const stepBanner  = document.getElementById('step-banner');
 const sbCurrent   = document.getElementById('sb-current');
@@ -844,6 +909,7 @@ const stepController = {
       sbVerify.textContent = 'Done';
       sbVerify.disabled    = true;
       sbFill.style.width   = '100%';
+      showVerificationCallout();
     }
   },
 };

@@ -73,6 +73,26 @@
     </div>
   </div>
 
+  <!-- Verification callout panel (world-anchored, shown after all steps done) -->
+  <div id="verification-panel" class="glass-card floating-panel verif-panel">
+    <div class="fp-header">
+      <span class="fp-eyebrow">✓ Opstelling</span>
+      <span class="fp-chip">Complete</span>
+    </div>
+    <h2 class="fp-title" style="font-size:17px;margin-bottom:12px">Alle stappen voltooid</h2>
+    <div class="metric-grid">
+      <div class="metric">
+        <span class="metric-label">Ultrasonic</span>
+        <span class="metric-value" id="verif-us" style="font-size:24px">—<em>cm</em></span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">LED State</span>
+        <span class="metric-value" id="verif-led-text" style="font-size:18px">—</span>
+        <div class="led-indicator" id="verif-led-dot"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Screen-space UI ──────────────────────────────────────── -->
 
   <!-- Detail panel (component info bottom sheet) -->
