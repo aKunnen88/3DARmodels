@@ -253,7 +253,13 @@ html, body {
   padding: 16px 18px 14px;
   pointer-events: none;
   transform: translateX(-50%);
-  transition: opacity 0.3s;
+  /* Strong shadow so card is readable on white/light backgrounds */
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.2) inset,
+    0 8px 32px rgba(0,0,0,0.6),
+    0 2px 8px rgba(0,0,0,0.8);
+  background: rgba(10, 12, 20, 0.75);
+  border-color: rgba(255,255,255,0.18);
 }
 
 /* ── Central sensor beam panel (CSS3DObject, MindAR-anchored) ── */

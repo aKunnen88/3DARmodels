@@ -470,6 +470,9 @@ function tickScreenMarkers() {
   ssSensorCardY += (ssTargetY - ssSensorCardY) * LERP;
 
   if (!ssVisible) {
+    // Snap to position immediately — don't LERP from (0,0)
+    ssSensorCardX = ssTargetX;
+    ssSensorCardY = ssTargetY;
     ssVisible = true;
     if (ssSensorCard) ssSensorCard.style.display = 'block';
   }
@@ -488,32 +491,41 @@ function tickScreenMarkers() {
   const beamBottomY = centY;
 
   beamCtx.save();
-  beamCtx.strokeStyle = 'rgba(255,255,255,0.92)';
+  beamCtx.lineCap = 'round';
+
+  // Dark outline stroke for contrast on light/white backgrounds
+  beamCtx.strokeStyle = 'rgba(0,0,0,0.55)';
+  beamCtx.lineWidth   = 7;
+  beamCtx.shadowBlur  = 0;
+  beamCtx.beginPath();
+  beamCtx.moveTo(ssSensorCardX, beamTopY);
+  beamCtx.lineTo(centX, beamBottomY);
+  beamCtx.stroke();
+
+  // White core
+  beamCtx.strokeStyle = 'rgba(255,255,255,0.95)';
   beamCtx.lineWidth   = 3;
-  beamCtx.lineCap     = 'round';
-  beamCtx.shadowColor = 'rgba(255,255,255,0.6)';
-  beamCtx.shadowBlur  = 8;
+  beamCtx.shadowColor = 'rgba(255,255,255,0.8)';
+  beamCtx.shadowBlur  = 10;
   beamCtx.beginPath();
   beamCtx.moveTo(ssSensorCardX, beamTopY);
   beamCtx.lineTo(centX, beamBottomY);
   beamCtx.stroke();
   beamCtx.restore();
 
-  // Glowing base dot at centroid
-  beamCtx.fillStyle = 'rgba(255,255,255,0.95)';
-  beamCtx.shadowColor = 'rgba(255,255,255,0.7)';
-  beamCtx.shadowBlur  = 10;
+  // Base dot — dark ring + white fill for contrast
   beamCtx.beginPath();
-  beamCtx.arc(centX, centY, 5, 0, Math.PI * 2);
+  beamCtx.arc(centX, centY, 8, 0, Math.PI * 2);
+  beamCtx.fillStyle = 'rgba(0,0,0,0.5)';
   beamCtx.fill();
 
-  // Soft outer ring
-  beamCtx.strokeStyle = 'rgba(255,255,255,0.3)';
-  beamCtx.lineWidth   = 1.5;
-  beamCtx.shadowBlur  = 0;
   beamCtx.beginPath();
-  beamCtx.arc(centX, centY, 11, 0, Math.PI * 2);
-  beamCtx.stroke();
+  beamCtx.arc(centX, centY, 5, 0, Math.PI * 2);
+  beamCtx.fillStyle = 'rgba(255,255,255,0.98)';
+  beamCtx.shadowColor = 'rgba(255,255,255,0.9)';
+  beamCtx.shadowBlur  = 12;
+  beamCtx.fill();
+  beamCtx.shadowBlur = 0;
 
   // ── Per-marker pill beams ────────────────────────────────────
   screenMarkers.forEach(m => {
