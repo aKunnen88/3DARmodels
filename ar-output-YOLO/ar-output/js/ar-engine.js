@@ -60,8 +60,11 @@ let lineMat       = null;
 
 // ── Screen-space marker state (fallback) ──────────────────────
 const markersEl    = document.getElementById('markers-container');
-let   screenMarkers = [];   // { id, el, comp, curX, curY, targetX, targetY }
-const LERP = 0.12;
+const beamCanvas   = document.getElementById('beam-canvas');
+const beamCtx      = beamCanvas ? beamCanvas.getContext('2d') : null;
+let   screenMarkers = [];   // { id, el, comp, detX, detY, curX, curY, targetX, targetY }
+const LERP = 0.14;
+const PILL_OFFSET_Y = 78;
 
 // ── Boot ──────────────────────────────────────────────────────
 async function boot() {
@@ -305,8 +308,12 @@ function syncScreenMarkers(preds) {
     cur[comp.id] = (cur[comp.id] || 0) + 1;
     const markerId = `sm-${comp.id}-${cur[comp.id]}`;
 
-    const [vx, vy, vw, vh]           = pred.bbox;
-    const { x: targetX, y: targetY } = getScreenCoords(vx + vw / 2, vy + vh / 2);
+    const [vx, vy, vw, vh] = pred.bbox;
+    const { x: detX, y: detY } = getScreenCoords(vx + vw / 2, vy + vh / 2);
+
+    // Pill floats above the detection; stays on screen
+    const targetX = Math.max(40, Math.min(window.innerWidth - 40, detX));
+    const targetY = Math.max(70, detY - PILL_OFFSET_Y);
 
     let m = screenMarkers.find(x => x.id === markerId);
     if (!m) {
@@ -327,21 +334,57 @@ function syncScreenMarkers(preds) {
       el.appendChild(label);
       markersEl.appendChild(el);
 
-      m = { id: markerId, el, comp, curX: targetX, curY: targetY, targetX, targetY };
+      m = { id: markerId, el, comp, detX, detY, curX: targetX, curY: targetY, targetX, targetY };
       screenMarkers.push(m);
     }
 
+    m.detX    = detX;
+    m.detY    = detY;
     m.targetX = targetX;
     m.targetY = targetY;
   });
 }
 
 function tickScreenMarkers() {
+  if (!beamCtx) return;
+
+  // Keep canvas sized to window
+  if (beamCanvas.width  !== window.innerWidth)  beamCanvas.width  = window.innerWidth;
+  if (beamCanvas.height !== window.innerHeight) beamCanvas.height = window.innerHeight;
+
+  beamCtx.clearRect(0, 0, beamCanvas.width, beamCanvas.height);
+  if (screenMarkers.length === 0) return;
+
   screenMarkers.forEach(m => {
     m.curX += (m.targetX - m.curX) * LERP;
     m.curY += (m.targetY - m.curY) * LERP;
     m.el.style.left = `${m.curX}px`;
     m.el.style.top  = `${m.curY}px`;
+
+    // White beam: detection → pill
+    beamCtx.strokeStyle = 'rgba(255,255,255,0.88)';
+    beamCtx.lineWidth   = 2.5;
+    beamCtx.lineCap     = 'round';
+    beamCtx.shadowColor = 'rgba(255,255,255,0.55)';
+    beamCtx.shadowBlur  = 5;
+    beamCtx.beginPath();
+    beamCtx.moveTo(m.detX, m.detY);
+    beamCtx.lineTo(m.curX, m.curY + 19);  // +19 to land on pill bottom, not center
+    beamCtx.stroke();
+    beamCtx.shadowBlur = 0;
+
+    // Glowing dot at physical component
+    beamCtx.fillStyle = 'rgba(255,255,255,0.95)';
+    beamCtx.beginPath();
+    beamCtx.arc(m.detX, m.detY, 4.5, 0, Math.PI * 2);
+    beamCtx.fill();
+
+    // Soft ring around the dot
+    beamCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+    beamCtx.lineWidth   = 1.2;
+    beamCtx.beginPath();
+    beamCtx.arc(m.detX, m.detY, 9, 0, Math.PI * 2);
+    beamCtx.stroke();
   });
 }
 
