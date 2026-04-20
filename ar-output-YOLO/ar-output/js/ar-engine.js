@@ -55,8 +55,13 @@ let ovObj  = null;   // overview  – LEFT
 let mpObj  = null;   // measurements – CENTER
 
 // ── Beam / pill tracking ───────────────────────────────────────
-let beamObjects = [];   // { line, endcap, pillObj }
-let lineMat     = null;
+let beamObjects   = [];   // { line, endcap, pillObj }
+let lineMat       = null;
+
+// ── Screen-space marker state (fallback) ──────────────────────
+const markersEl    = document.getElementById('markers-container');
+let   screenMarkers = [];   // { id, el, comp, curX, curY, targetX, targetY }
+const LERP = 0.12;
 
 // ── Boot ──────────────────────────────────────────────────────
 async function boot() {
@@ -165,6 +170,9 @@ async function initMindAR() {
       clearBeams();
     }
 
+    // LERP screen-space markers
+    tickScreenMarkers();
+
     // Billboard pills toward camera
     billboardPills();
 
@@ -205,6 +213,7 @@ function setupWorldPanels() {
 // ── Target found / lost ───────────────────────────────────────
 function onTargetFound() {
   mindarTargetVisible = true;
+  clearScreenMarkers();
   scanRing.classList.add('hidden');
   updateStatus('Arduino opstelling detected');
   // Stagger panel reveal
@@ -259,6 +268,82 @@ function breathePanels(now) {
   }
 }
 
+// ── Screen-space markers (shown when MindAR target not locked) ────────────
+function clearScreenMarkers() {
+  screenMarkers.forEach(m => {
+    m.el.classList.add('fade-out');
+    setTimeout(() => m.el.remove(), 250);
+  });
+  screenMarkers = [];
+}
+
+function syncScreenMarkers(preds) {
+  const counts  = {};
+  const activeIds = new Set();
+
+  preds.forEach(p => {
+    const id = resolveComponent(p.class).id;
+    counts[id] = (counts[id] || 0) + 1;
+    activeIds.add(`sm-${id}-${counts[id]}`);
+  });
+
+  // Remove stale
+  screenMarkers = screenMarkers.filter(m => {
+    if (!activeIds.has(m.id)) {
+      m.el.classList.add('fade-out');
+      setTimeout(() => m.el.remove(), 250);
+      return false;
+    }
+    return true;
+  });
+
+  // Add / update
+  const cur = {};
+  preds.forEach((pred, i) => {
+    const comp = resolveComponent(pred.class);
+    cur[comp.id] = (cur[comp.id] || 0) + 1;
+    const markerId = `sm-${comp.id}-${cur[comp.id]}`;
+
+    const [vx, vy, vw, vh]           = pred.bbox;
+    const { x: targetX, y: targetY } = getScreenCoords(vx + vw / 2, vy + vh / 2);
+
+    let m = screenMarkers.find(x => x.id === markerId);
+    if (!m) {
+      const el = document.createElement('div');
+      el.className = 'ar-marker';
+
+      const pill = document.createElement('div');
+      pill.className = 'ar-marker-pill';
+      pill.textContent = String(i + 1);
+      pill.addEventListener('click',    ()  => openPanel(comp));
+      pill.addEventListener('touchend', (e) => { e.preventDefault(); openPanel(comp); });
+
+      const label = document.createElement('div');
+      label.className = 'ar-marker-label';
+      label.textContent = comp.name;
+
+      el.appendChild(pill);
+      el.appendChild(label);
+      markersEl.appendChild(el);
+
+      m = { id: markerId, el, comp, curX: targetX, curY: targetY, targetX, targetY };
+      screenMarkers.push(m);
+    }
+
+    m.targetX = targetX;
+    m.targetY = targetY;
+  });
+}
+
+function tickScreenMarkers() {
+  screenMarkers.forEach(m => {
+    m.curX += (m.targetX - m.curX) * LERP;
+    m.curY += (m.targetY - m.curY) * LERP;
+    m.el.style.left = `${m.curX}px`;
+    m.el.style.top  = `${m.curY}px`;
+  });
+}
+
 // ── Leader beam helpers ────────────────────────────────────────
 function clearBeams() {
   beamObjects.forEach(({ line, endcap, pillObj }) => {
@@ -308,8 +393,12 @@ function screenToAnchorLocal(sx, sy) {
 }
 
 function syncBeams(preds) {
+  if (!mindarTargetVisible) {
+    syncScreenMarkers(preds);
+    return;
+  }
+  clearScreenMarkers();
   clearBeams();
-  if (!mindarTargetVisible) return;
 
   preds.forEach((pred, i) => {
     const comp = resolveComponent(pred.class);

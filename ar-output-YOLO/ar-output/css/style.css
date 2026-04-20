@@ -245,6 +245,66 @@ html, body {
   color: var(--accent);
 }
 
+/* ── Screen-space markers (fallback when MindAR target not locked) ── */
+#markers-container {
+  position: fixed; inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.ar-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  animation: marker-in 0.35s var(--ease-smooth) forwards;
+  will-change: left, top;
+}
+
+@keyframes marker-in {
+  from { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  to   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.ar-marker.fade-out {
+  animation: marker-out 0.25s ease forwards;
+}
+@keyframes marker-out {
+  to { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+}
+
+.ar-marker-pill {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: var(--pill-yellow); color: var(--pill-ink);
+  font-weight: 700; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 0 2.5px rgba(255,255,255,0.9) inset;
+  cursor: pointer;
+  transition: transform 180ms var(--ease-smooth);
+  animation: bounce-idle 2.2s ease-in-out infinite;
+}
+.ar-marker-pill:active { transform: scale(0.88); }
+
+@keyframes bounce-idle {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-4px); }
+}
+
+.ar-marker-label {
+  font-size: 10px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 20px;
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--text-primary);
+  white-space: nowrap; pointer-events: none;
+}
+
 /* ── Callout pills (world-anchored, CSS3DObject) ─────────────── */
 .callout-pill {
   width: 38px; height: 38px;
