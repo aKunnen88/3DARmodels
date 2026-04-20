@@ -49,10 +49,18 @@ let worldUIGroup        = null;
 let scene               = null;
 
 // ── Panels (CSS3DObjects) ──────────────────────────────────────
-const PANEL_SCALE = 0.0018;
-const PILL_SCALE  = 0.0011;
+const PANEL_SCALE        = 0.0018;
+const PILL_SCALE         = 0.0011;
+const SENSOR_PANEL_SCALE = 0.0028;   // larger — this is the hero panel
 let ovObj  = null;   // overview  – LEFT
 let mpObj  = null;   // measurements – CENTER
+
+// ── Central sensor beam ────────────────────────────────────────
+let sensorBeamGroup     = null;
+let sensorSyncInterval  = null;
+const sbpUSValue  = document.getElementById('sbp-us-value');
+const sbpLedDot   = document.getElementById('sbp-led-dot');
+const sbpLedState = document.getElementById('sbp-led-state');
 
 // ── Beam / pill tracking ───────────────────────────────────────
 let beamObjects   = [];   // { line, endcap, pillObj }
@@ -123,7 +131,10 @@ async function initMindAR() {
   worldUIGroup = new THREE.Group();
   mindarAnchorGroup.add(worldUIGroup);
 
-  // World-anchored panels
+  // Central sensor beam (hero data panel)
+  setupSensorBeam();
+
+  // World-anchored triptych panels
   setupWorldPanels();
 
   imageAnchor.onTargetFound = onTargetFound;
@@ -193,6 +204,62 @@ function onResize() {
   if (lineMat) lineMat.resolution.set(window.innerWidth, window.innerHeight);
 }
 
+// ── Central sensor beam setup ──────────────────────────────────
+function setupSensorBeam() {
+  sensorBeamGroup = new THREE.Group();
+  mindarAnchorGroup.add(sensorBeamGroup);
+  sensorBeamGroup.visible = false;
+
+  const BEAM_HEIGHT = 0.85;   // ~15 cm in anchor units
+  const PANEL_Y     = BEAM_HEIGHT + 0.12;
+
+  // Vertical white beam from base to top
+  const beamGeom = new LineGeometry();
+  beamGeom.setPositions([0, 0.02, 0,  0, BEAM_HEIGHT, 0]);
+  const beam = new Line2(beamGeom, new LineMaterial({
+    color: 0xffffff, linewidth: 3,
+    transparent: true, opacity: 0.92,
+    worldUnits: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  }));
+  beam.computeLineDistances();
+  sensorBeamGroup.add(beam);
+
+  // Glowing base dot at breadboard surface
+  const baseDot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.016, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 })
+  );
+  baseDot.position.set(0, 0.02, 0);
+  sensorBeamGroup.add(baseDot);
+
+  // Soft outer ring at base
+  const ringGeom = new LineGeometry();
+  const segs = 32;
+  const pts = [];
+  for (let i = 0; i <= segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    pts.push(Math.cos(a) * 0.04, 0.005, Math.sin(a) * 0.04);
+  }
+  ringGeom.setPositions(pts);
+  const ring = new Line2(ringGeom, new LineMaterial({
+    color: 0xffffff, linewidth: 1.5,
+    transparent: true, opacity: 0.35,
+    worldUnits: false,
+    resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+  }));
+  ring.computeLineDistances();
+  sensorBeamGroup.add(ring);
+
+  // Sensor data panel (CSS3DObject) at beam top
+  const panelEl = document.getElementById('sensor-beam-panel');
+  const panelObj = new CSS3DObject(panelEl);
+  panelObj.position.set(0, PANEL_Y, 0);
+  panelObj.scale.setScalar(SENSOR_PANEL_SCALE);
+  sensorBeamGroup.add(panelObj);
+  sensorBeamGroup.userData.panelObj = panelObj;
+}
+
 // ── World panels setup ─────────────────────────────────────────
 function setupWorldPanels() {
   // Overview — LEFT, yaw inward
@@ -219,7 +286,25 @@ function onTargetFound() {
   clearScreenMarkers();
   scanRing.classList.add('hidden');
   updateStatus('Arduino opstelling detected');
-  // Stagger panel reveal
+
+  // Show sensor beam with scale-in
+  if (sensorBeamGroup) {
+    sensorBeamGroup.visible = true;
+    const po = sensorBeamGroup.userData.panelObj;
+    if (po) tweenScale(po, 0, SENSOR_PANEL_SCALE, 550);
+  }
+
+  // Live sensor data loop
+  clearInterval(sensorSyncInterval);
+  sensorSyncInterval = setInterval(() => {
+    if (sbpUSValue)  sbpUSValue.textContent  = latestUS === '—' ? '—' : latestUS;
+    if (sbpLedState) sbpLedState.textContent = latestLED || '—';
+    if (sbpLedDot) {
+      sbpLedDot.classList.toggle('on', latestLED === 'ON');
+    }
+  }, 200);
+
+  // Triptych panels
   worldUIGroup.visible = true;
   revealPanels();
   syncMPlaneValues();
@@ -232,6 +317,8 @@ function onTargetLost() {
   updateStatus('Point at the Arduino opstelling');
   clearBeams();
   hideVerificationCallout();
+  clearInterval(sensorSyncInterval);
+  if (sensorBeamGroup) sensorBeamGroup.visible = false;
   state.detections = [];
   worldUIGroup.visible = false;
   clearInterval(mPlaneSyncInterval);

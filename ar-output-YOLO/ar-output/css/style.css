@@ -245,6 +245,71 @@ html, body {
   color: var(--accent);
 }
 
+/* ── Central sensor beam panel ───────────────────────────────── */
+.sensor-panel {
+  width: 260px;
+  padding: 18px 20px 16px;
+  pointer-events: none;
+}
+
+.sbp-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.sbp-us {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 12px;
+  line-height: 1;
+}
+
+.sbp-us-value {
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.sbp-us-unit {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.sbp-divider {
+  height: 1px;
+  background: var(--glass-border);
+  margin-bottom: 12px;
+}
+
+.sbp-led-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sbp-led-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.sbp-led-state {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 /* ── Verification callout panel ──────────────────────────────── */
 .verif-panel { width: 280px; }
 
