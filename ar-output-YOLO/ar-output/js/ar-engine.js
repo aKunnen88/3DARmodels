@@ -1037,9 +1037,15 @@ async function sendAIMessage() {
     const endpoint = customEndpointURL || (USE_OLLAMA ? OLLAMA_URL : VERCEL_URL);
     const model    = customEndpointURL ? OLLAMA_MODEL : (USE_OLLAMA ? OLLAMA_MODEL : VERCEL_MODEL);
 
+    const headers = { 'Content-Type': 'application/json' };
+    // ngrok free tier blocks browser fetch without this header
+    if (customEndpointURL && customEndpointURL.includes('ngrok')) {
+      headers['ngrok-skip-browser-warning'] = 'true';
+    }
+
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         model,
         messages: [
