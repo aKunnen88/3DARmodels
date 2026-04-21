@@ -1074,10 +1074,11 @@ async function sendAIMessage() {
       throw new Error(`${res.status}: ${err.slice(0, 120)}`);
     }
 
-    // Stream SSE tokens into the bubble as they arrive
+    // Read the response — handles both SSE streaming and plain JSON fallback
     const reader  = res.body.getReader();
     const decoder = new TextDecoder();
     let sseBuffer = '';
+    let allData   = '';
     let fullText  = '';
     let started   = false;
 
@@ -1085,9 +1086,11 @@ async function sendAIMessage() {
       const { done, value } = await reader.read();
       if (done) break;
 
-      sseBuffer += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
+      allData   += chunk;
+      sseBuffer += chunk;
       const lines = sseBuffer.split('\n');
-      sseBuffer   = lines.pop(); // keep any incomplete line
+      sseBuffer   = lines.pop(); // keep incomplete line
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
@@ -1105,8 +1108,25 @@ async function sendAIMessage() {
             thinkBubble.textContent = fullText;
             responseArea.scrollTop  = responseArea.scrollHeight;
           }
-        } catch { /* malformed chunk — skip */ }
+        } catch { /* malformed SSE chunk — skip */ }
       }
+    }
+
+    // Fallback: response arrived as plain JSON instead of SSE
+    if (!started) {
+      try {
+        const json  = JSON.parse(allData.trim());
+        const reply = json.choices?.[0]?.message?.content
+                   || json.choices?.[0]?.delta?.content
+                   || json.message?.content
+                   || json.error
+                   || '';
+        if (reply) {
+          thinkBubble.textContent = reply;
+          thinkBubble.classList.add('active');
+          started = true;
+        }
+      } catch { /* not JSON either */ }
     }
 
     if (!started) {
