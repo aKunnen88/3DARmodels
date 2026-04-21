@@ -460,11 +460,13 @@ function tickScreenMarkers() {
   const centX = sumX / screenMarkers.length;
   const centY = sumY / screenMarkers.length;
 
-  // ── Sensor card: float above centroid ───────────────────────
+  // ── Sensor card: float well above all component labels ──────
   const cardH   = 130;
   const BEAM_GAP = 18;
   ssTargetX = centX;
-  ssTargetY = Math.max(cardH + 20, centY - 440);
+  // Keep card in top 25 % of screen so it never overlaps component pills
+  const maxCardY = window.innerHeight * 0.25;
+  ssTargetY = Math.min(maxCardY, Math.max(cardH + 12, centY - 580));
 
   ssSensorCardX += (ssTargetX - ssSensorCardX) * LERP;
   ssSensorCardY += (ssTargetY - ssSensorCardY) * LERP;
