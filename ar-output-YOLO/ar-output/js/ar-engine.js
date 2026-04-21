@@ -857,9 +857,9 @@ function updateSparkCanvas() {
 }
 
 // ── AI Panel — smart backend detection ───────────────────────
+// • custom endpoint input → always used when set
 // • localhost → tries Ollama (qwen2.5:3b) directly on port 11434
 // • Vercel / any HTTPS host → calls /api/chat serverless function
-//   which proxies to NVIDIA API using a server-side key (no key in browser)
 const OLLAMA_URL    = 'http://localhost:11434/v1/chat/completions';
 const OLLAMA_MODEL  = 'qwen2.5:3b';
 const VERCEL_URL    = '/api/chat';
@@ -868,12 +868,51 @@ const VERCEL_MODEL  = 'meta/llama-3.1-8b-instruct';
 // Detect environment: if running on localhost → prefer Ollama
 const IS_LOCAL      = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
 let   USE_OLLAMA    = IS_LOCAL;   // will be set false if Ollama ping fails
+let   useArduinoSkill = false;    // ArduinoExpert skill toggle
+let   customEndpointURL = '';     // user-configured local Qwen endpoint
 
 // Pre-flight: ping Ollama to see if it's actually running
 if (IS_LOCAL) {
   fetch('http://localhost:11434', { method: 'GET', signal: AbortSignal.timeout(1500) })
     .catch(() => { USE_OLLAMA = false; });
 }
+
+// ArduinoExpert skill — full content from LLMIntegration/ArduinoExpert/Skill.md
+const ARDUINO_EXPERT_SKILL = `You are an Arduino hardware expert specializing in ultrasonic distance measurement. You have deep knowledge of the HC-SR04 ultrasonic sensor, Arduino Uno board, wiring, and the underlying electronics.
+
+## Project Overview
+This project uses an Arduino Uno board with an HC-SR04 ultrasonic distance sensor to measure distances in centimeters. The measured distance is sent over serial (115200 baud) every 100 ms.
+
+## The HC-SR04 Ultrasonic Sensor
+The HC-SR04 provides 2 cm to 400 cm non-contact distance measurement with ~3 mm accuracy.
+How it works: Arduino sends a 10 µs HIGH pulse on Trig → sensor emits eight 40 kHz pulses → pulses bounce back → Echo pin goes HIGH for round-trip duration → distance (cm) = duration × 0.0343 / 2.
+
+Pins: VCC (+5V DC), Trig (trigger input, 10 µs pulse), Echo (output, HIGH for round-trip time), GND.
+
+## Arduino Uno Wiring
+HC-SR04 VCC → Arduino 5V (NOT 3.3V — sensor requires exactly 5V)
+HC-SR04 Trig → Arduino D9 (OUTPUT, sends trigger pulse)
+HC-SR04 Echo → Arduino D10 (INPUT, reads echo duration via pulseIn)
+HC-SR04 GND → Arduino GND (common ground reference)
+
+## Arduino Code Reference
+Serial.begin(115200) — fast serial for 10 Hz streaming
+trigPin=9, echoPin=10
+Trigger: digitalWrite(trigPin,LOW) → delayMicroseconds(2) → HIGH → delayMicroseconds(10) → LOW
+Read: duration = pulseIn(echoPin, HIGH, 20000) [20ms timeout ≈ 3.4m max]
+Calculate: distanceCm = duration * 0.0343 / 2
+Send: Serial.println(-1) when timeout, else Serial.println((int)distanceCm)
+Loop: delay(100) for 10 Hz rate
+
+## Common Mistakes & Fixes
+- Always -1: check VCC→5V, GND, Trig→D9, Echo→D10 wiring
+- Wrong readings: Trig/Echo pins swapped — swap wires on D9 and D10
+- Garbage serial output: set Serial Monitor baud to 115200
+- Unstable readings: add 10 µF capacitor across VCC/GND on sensor, use short wires
+- Half/double distance: ensure formula is duration * 0.0343 / 2
+- 3.3V boards (ESP32): need level shifter or HC-SR04P variant
+
+## When answering: reference exact pins (D9, D10, 5V, GND), explain the why, cite speed of sound (343 m/s at 20°C), warn about common mistakes.`;
 
 const aiPanel      = document.getElementById('ai-panel');
 const aiPanelBg    = document.getElementById('ai-panel-bg');
@@ -886,8 +925,14 @@ const aiResponseEl = document.getElementById('ai-response-text');
 const aiHeaderTitle = document.querySelector('.ai-header-title');
 function updateAIHeaderLabel() {
   if (!aiHeaderTitle) return;
-  const label = USE_OLLAMA ? 'qwen2.5:3b · local' : 'llama-3.1-8b · cloud';
-  aiHeaderTitle.innerHTML = `<span class="dot"></span> AI Assistant <small style="font-size:10px;opacity:0.55;margin-left:6px;">${label}</small>`;
+  let label;
+  if (customEndpointURL) {
+    label = 'qwen2.5 · local custom';
+  } else {
+    label = USE_OLLAMA ? 'qwen2.5:3b · local' : 'llama-3.1-8b · cloud';
+  }
+  const skillTag = useArduinoSkill ? ' <span style="color:var(--accent);font-size:9px;">⚡ skill</span>' : '';
+  aiHeaderTitle.innerHTML = `<span class="dot"></span> AI Assistant <small style="font-size:10px;opacity:0.55;margin-left:6px;">${label}${skillTag}</small>`;
 }
 updateAIHeaderLabel();
 
@@ -895,6 +940,38 @@ aiCloseBtn.addEventListener('click', closeAIPanel);
 aiPanelBg.addEventListener('click',  closeAIPanel);
 aiSendBtn.addEventListener('click',  sendAIMessage);
 aiInput.addEventListener('keydown',  e => { if (e.key === 'Enter') sendAIMessage(); });
+
+// Skill toggle
+const skillToggleCb  = document.getElementById('skill-toggle-cb');
+skillToggleCb.addEventListener('change', () => {
+  useArduinoSkill = skillToggleCb.checked;
+  updateAIHeaderLabel();
+});
+
+// Endpoint config button + input
+const aiEndpointBtn   = document.getElementById('ai-endpoint-btn');
+const aiEndpointRow   = document.getElementById('ai-endpoint-row');
+const aiEndpointInput = document.getElementById('ai-endpoint-input');
+
+aiEndpointBtn.addEventListener('click', () => {
+  const open = !aiEndpointRow.classList.contains('hidden');
+  aiEndpointRow.classList.toggle('hidden', open);
+  aiEndpointBtn.classList.toggle('active', !open);
+  if (!open) aiEndpointInput.focus();
+});
+
+aiEndpointInput.addEventListener('input', () => {
+  customEndpointURL = aiEndpointInput.value.trim();
+  updateAIHeaderLabel();
+});
+
+aiEndpointInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    aiEndpointRow.classList.add('hidden');
+    aiEndpointBtn.classList.remove('active');
+    aiInput.focus();
+  }
+});
 
 // Suggestion chips
 document.querySelectorAll('.ai-suggestions .chip').forEach(chip => {
@@ -918,10 +995,14 @@ function closeAIPanel() {
 
 function buildSystemPrompt() {
   const detected = state.detections.map(d => resolveComponent(d.class).fullName).join(', ') || 'nothing yet';
-  return `You are an expert Arduino and electronics assistant embedded in an AR app.
+  const base = `You are an expert Arduino and electronics assistant embedded in an AR app.
 Currently detected components: ${detected}.
 Live ultrasonic sensor: ${latestUS} cm. LED state: ${latestLED}.
 Be concise and practical. No markdown formatting — plain text only.`;
+  if (useArduinoSkill) {
+    return ARDUINO_EXPERT_SKILL + '\n\n---\n\n' + base;
+  }
+  return base;
 }
 
 async function sendAIMessage() {
@@ -945,9 +1026,9 @@ async function sendAIMessage() {
   responseArea.scrollTop = responseArea.scrollHeight;
 
   try {
-    // Pick backend: Ollama locally, or Vercel /api/chat when deployed
-    const endpoint = USE_OLLAMA ? OLLAMA_URL : VERCEL_URL;
-    const model    = USE_OLLAMA ? OLLAMA_MODEL : VERCEL_MODEL;
+    // Pick backend: custom URL > Ollama locally > Vercel /api/chat
+    const endpoint = customEndpointURL || (USE_OLLAMA ? OLLAMA_URL : VERCEL_URL);
+    const model    = customEndpointURL ? OLLAMA_MODEL : (USE_OLLAMA ? OLLAMA_MODEL : VERCEL_MODEL);
 
     const res = await fetch(endpoint, {
       method: 'POST',
@@ -979,13 +1060,15 @@ async function sendAIMessage() {
   } catch (err) {
     console.error('[AI]', err);
     const isDown = err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
-    if (isDown && USE_OLLAMA) {
+    if (isDown && customEndpointURL) {
+      thinkBubble.innerHTML = `<b>Custom endpoint unreachable.</b><br>Check the URL in ⚙ settings — make sure Ollama is running and accessible.`;
+    } else if (isDown && USE_OLLAMA) {
       USE_OLLAMA = false;   // auto-switch to Vercel backend
       updateAIHeaderLabel();
       thinkBubble.textContent = 'Ollama not reachable — switched to cloud. Resend your question.';
     } else {
       thinkBubble.innerHTML = isDown
-        ? `<b>AI unavailable.</b><br>Check Vercel env vars or run Ollama locally.`
+        ? `<b>AI unavailable.</b><br>Use ⚙ to set your local Qwen endpoint or run Ollama on localhost.`
         : `Error: ${err.message}`;
     }
   }

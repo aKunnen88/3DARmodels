@@ -192,6 +192,17 @@
         <button class="chip">Why a 220Ω resistor?</button>
         <button class="chip">What's next?</button>
       </div>
+      <div id="ai-settings-row">
+        <label class="skill-toggle-label" title="Inject Arduino Expert knowledge into every prompt">
+          <input type="checkbox" id="skill-toggle-cb">
+          <span class="skill-toggle-track"><span class="skill-toggle-thumb"></span></span>
+          <span>Arduino Expert</span>
+        </label>
+        <button id="ai-endpoint-btn" title="Configure local Qwen endpoint">⚙</button>
+      </div>
+      <div id="ai-endpoint-row" class="hidden">
+        <input id="ai-endpoint-input" type="text" placeholder="http://localhost:11434/v1/chat/completions" autocomplete="off" />
+      </div>
       <div id="ai-input-row">
         <input id="ai-input" type="text" placeholder="Ask about your circuit…" autocomplete="off" />
         <button id="ai-send-btn">↑</button>
