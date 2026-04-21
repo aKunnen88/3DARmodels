@@ -1082,6 +1082,8 @@ async function sendAIMessage() {
     let fullText  = '';
     let started   = false;
 
+    let sseError = null;
+
     outer: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -1090,14 +1092,17 @@ async function sendAIMessage() {
       allData   += chunk;
       sseBuffer += chunk;
       const lines = sseBuffer.split('\n');
-      sseBuffer   = lines.pop(); // keep incomplete line
+      sseBuffer   = lines.pop();
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
         const payload = line.slice(6).trim();
         if (payload === '[DONE]') break outer;
         try {
-          const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
+          const parsed = JSON.parse(payload);
+          const delta  = parsed.choices?.[0]?.delta?.content;
+          // Catch error objects returned inside the SSE stream
+          const errMsg = parsed.error?.message || parsed.error;
           if (delta) {
             if (!started) {
               thinkBubble.textContent = '';
@@ -1107,10 +1112,15 @@ async function sendAIMessage() {
             fullText += delta;
             thinkBubble.textContent = fullText;
             responseArea.scrollTop  = responseArea.scrollHeight;
+          } else if (errMsg && !started) {
+            sseError = String(errMsg);
           }
-        } catch { /* malformed SSE chunk — skip */ }
+        } catch { /* malformed chunk — skip */ }
       }
     }
+
+    // Surface an in-stream error if no content arrived
+    if (!started && sseError) throw new Error(sseError);
 
     // Fallback: response arrived as plain JSON instead of SSE
     if (!started) {
@@ -1119,18 +1129,22 @@ async function sendAIMessage() {
         const reply = json.choices?.[0]?.message?.content
                    || json.choices?.[0]?.delta?.content
                    || json.message?.content
-                   || json.error
+                   || (json.error?.message ? `Model error: ${json.error.message}` : null)
+                   || (typeof json.error === 'string' ? json.error : null)
                    || '';
         if (reply) {
           thinkBubble.textContent = reply;
           thinkBubble.classList.add('active');
           started = true;
         }
-      } catch { /* not JSON either */ }
+      } catch { /* not JSON either — show raw snippet below */ }
     }
 
     if (!started) {
-      thinkBubble.textContent = 'No response received.';
+      const snippet = allData.trim().slice(0, 160);
+      thinkBubble.textContent = snippet
+        ? `Unexpected response: ${snippet}`
+        : 'No response — check that Ollama is running and the ngrok tunnel is active.';
       thinkBubble.classList.add('active');
     }
 
