@@ -680,7 +680,9 @@ function getScreenCoords(vx, vy) {
 }
 
 // ── Roboflow YOLO detection ────────────────────────────────────
-const RF_API_KEY = 'sCeSU3tBkqCWRttvc4p5';
+// On localhost: call Roboflow directly (key only visible locally)
+// On Vercel:    call /api/detect  → key stays server-side
+const RF_API_KEY = 'sCeSU3tBkqCWRttvc4p5';  // used only on localhost
 const RF_MODEL   = 'my-first-project-iccnb/2';
 
 async function detect() {
@@ -693,11 +695,25 @@ async function detect() {
     snap.getContext('2d').drawImage(video, 0, 0);
     const base64 = snap.toDataURL('image/jpeg', 0.8).split(',')[1];
 
-    const res = await fetch(
-      `https://detect.roboflow.com/${RF_MODEL}?api_key=${RF_API_KEY}&confidence=50&overlap=30`,
-      { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: base64 }
-    );
-    const data  = await res.json();
+    let data;
+    if (IS_LOCAL) {
+      // Direct call — key is only exposed on your own machine
+      const res = await fetch(
+        `https://detect.roboflow.com/${RF_MODEL}?api_key=${RF_API_KEY}&confidence=50&overlap=30`,
+        { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: base64 }
+      );
+      data = await res.json();
+    } else {
+      // Vercel: proxy through /api/detect — key stays in environment variable
+      const res = await fetch('/api/detect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64 }),
+      });
+      data = await res.json();
+    }
+
+
     const preds = (data.predictions || []).map(p => ({
       class: p.class,
       score: p.confidence,
@@ -840,10 +856,24 @@ function updateSparkCanvas() {
   sparkCtx.stroke();
 }
 
-// ── AI Panel ──────────────────────────────────────────────────
-const LLM_API_KEY  = 'YOUR_API_KEY';
-const LLM_API_URL  = 'https://api.openai.com/v1/chat/completions';
-const LLM_MODEL    = 'gpt-4o-mini';
+// ── AI Panel — smart backend detection ───────────────────────
+// • localhost → tries Ollama (qwen2.5:3b) directly on port 11434
+// • Vercel / any HTTPS host → calls /api/chat serverless function
+//   which proxies to NVIDIA API using a server-side key (no key in browser)
+const OLLAMA_URL    = 'http://localhost:11434/v1/chat/completions';
+const OLLAMA_MODEL  = 'qwen2.5:3b';
+const VERCEL_URL    = '/api/chat';
+const VERCEL_MODEL  = 'meta/llama-3.1-8b-instruct';
+
+// Detect environment: if running on localhost → prefer Ollama
+const IS_LOCAL      = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+let   USE_OLLAMA    = IS_LOCAL;   // will be set false if Ollama ping fails
+
+// Pre-flight: ping Ollama to see if it's actually running
+if (IS_LOCAL) {
+  fetch('http://localhost:11434', { method: 'GET', signal: AbortSignal.timeout(1500) })
+    .catch(() => { USE_OLLAMA = false; });
+}
 
 const aiPanel      = document.getElementById('ai-panel');
 const aiPanelBg    = document.getElementById('ai-panel-bg');
@@ -851,6 +881,15 @@ const aiCloseBtn   = document.getElementById('ai-close-btn');
 const aiInput      = document.getElementById('ai-input');
 const aiSendBtn    = document.getElementById('ai-send-btn');
 const aiResponseEl = document.getElementById('ai-response-text');
+
+// Show the model name in the panel header
+const aiHeaderTitle = document.querySelector('.ai-header-title');
+function updateAIHeaderLabel() {
+  if (!aiHeaderTitle) return;
+  const label = USE_OLLAMA ? 'qwen2.5:3b · local' : 'llama-3.1-8b · cloud';
+  aiHeaderTitle.innerHTML = `<span class="dot"></span> AI Assistant <small style="font-size:10px;opacity:0.55;margin-left:6px;">${label}</small>`;
+}
+updateAIHeaderLabel();
 
 aiCloseBtn.addEventListener('click', closeAIPanel);
 aiPanelBg.addEventListener('click',  closeAIPanel);
@@ -880,22 +919,23 @@ function closeAIPanel() {
 function buildSystemPrompt() {
   const detected = state.detections.map(d => resolveComponent(d.class).fullName).join(', ') || 'nothing yet';
   return `You are an expert Arduino and electronics assistant embedded in an AR app.
-Currently detected: ${detected}. Ultrasonic: ${latestUS} cm. LED: ${latestLED}.
-Be concise and practical. Plain text, no markdown.`;
+Currently detected components: ${detected}.
+Live ultrasonic sensor: ${latestUS} cm. LED state: ${latestLED}.
+Be concise and practical. No markdown formatting — plain text only.`;
 }
 
 async function sendAIMessage() {
   const question = aiInput.value.trim();
   if (!question) return;
 
-  // Add user bubble
+  // User bubble
   const userBubble = document.createElement('div');
   userBubble.className = 'ai-bubble ai-bubble-user';
   userBubble.textContent = question;
   aiResponseEl.parentElement.appendChild(userBubble);
   aiInput.value = '';
 
-  // Add thinking bubble
+  // Thinking bubble
   const thinkBubble = document.createElement('div');
   thinkBubble.className = 'ai-bubble ai-bubble-assistant';
   thinkBubble.innerHTML = `<div class="ai-thinking"><span></span><span></span><span></span></div>`;
@@ -905,24 +945,52 @@ async function sendAIMessage() {
   responseArea.scrollTop = responseArea.scrollHeight;
 
   try {
-    const res = await fetch(LLM_API_URL, {
+    // Pick backend: Ollama locally, or Vercel /api/chat when deployed
+    const endpoint = USE_OLLAMA ? OLLAMA_URL : VERCEL_URL;
+    const model    = USE_OLLAMA ? OLLAMA_MODEL : VERCEL_MODEL;
+
+    const res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${LLM_API_KEY}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: LLM_MODEL,
+        model,
         messages: [
           { role: 'system', content: buildSystemPrompt() },
           { role: 'user',   content: question },
         ],
         max_tokens: 300,
+        stream: false,
       }),
     });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`${USE_OLLAMA ? 'Ollama' : 'API'} ${res.status}: ${err.slice(0,120)}`);
+    }
+
     const data = await res.json();
-    thinkBubble.textContent = data.choices?.[0]?.message?.content || 'No response.';
+    const reply = data.choices?.[0]?.message?.content
+      || data.message?.content
+      || 'No response from model.';
+
+    thinkBubble.textContent = reply;
     thinkBubble.classList.add('active');
-  } catch {
-    thinkBubble.textContent = 'Could not reach the AI. Check API key or connection.';
+
+  } catch (err) {
+    console.error('[AI]', err);
+    const isDown = err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
+    if (isDown && USE_OLLAMA) {
+      USE_OLLAMA = false;   // auto-switch to Vercel backend
+      updateAIHeaderLabel();
+      thinkBubble.textContent = 'Ollama not reachable — switched to cloud. Resend your question.';
+    } else {
+      thinkBubble.innerHTML = isDown
+        ? `<b>AI unavailable.</b><br>Check Vercel env vars or run Ollama locally.`
+        : `Error: ${err.message}`;
+    }
   }
+
+
   responseArea.scrollTop = responseArea.scrollHeight;
 }
 
