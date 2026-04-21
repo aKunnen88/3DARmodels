@@ -1058,10 +1058,9 @@ async function sendAIMessage() {
         { role: 'user',   content: question },
       ],
       max_tokens: 300,
-      stream: false,
+      stream: true,
     };
 
-    // Pass ngrok/local URL to Vercel so it proxies server-side (no browser CORS issues)
     if (customEndpointURL) requestBody.localEndpoint = customEndpointURL;
 
     const res = await fetch(endpoint, {
@@ -1072,24 +1071,56 @@ async function sendAIMessage() {
 
     if (!res.ok) {
       const err = await res.text();
-      throw new Error(`${USE_OLLAMA ? 'Ollama' : 'API'} ${res.status}: ${err.slice(0,120)}`);
+      throw new Error(`${res.status}: ${err.slice(0, 120)}`);
     }
 
-    const data = await res.json();
-    const reply = data.choices?.[0]?.message?.content
-      || data.message?.content
-      || 'No response from model.';
+    // Stream SSE tokens into the bubble as they arrive
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+    let fullText  = '';
+    let started   = false;
 
-    thinkBubble.textContent = reply;
-    thinkBubble.classList.add('active');
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+      const lines = sseBuffer.split('\n');
+      sseBuffer   = lines.pop(); // keep any incomplete line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6).trim();
+        if (payload === '[DONE]') break outer;
+        try {
+          const delta = JSON.parse(payload).choices?.[0]?.delta?.content;
+          if (delta) {
+            if (!started) {
+              thinkBubble.textContent = '';
+              thinkBubble.classList.add('active');
+              started = true;
+            }
+            fullText += delta;
+            thinkBubble.textContent = fullText;
+            responseArea.scrollTop  = responseArea.scrollHeight;
+          }
+        } catch { /* malformed chunk — skip */ }
+      }
+    }
+
+    if (!started) {
+      thinkBubble.textContent = 'No response received.';
+      thinkBubble.classList.add('active');
+    }
 
   } catch (err) {
     console.error('[AI]', err);
     const isDown = err.message.includes('Failed to fetch') || err.message.includes('NetworkError');
     if (isDown && customEndpointURL) {
-      thinkBubble.innerHTML = `<b>Custom endpoint unreachable.</b><br>Check the URL in ⚙ settings — make sure Ollama is running and accessible.`;
+      thinkBubble.innerHTML = `<b>Custom endpoint unreachable.</b><br>Check the URL in ⚙ settings.`;
     } else if (isDown && USE_OLLAMA) {
-      USE_OLLAMA = false;   // auto-switch to Vercel backend
+      USE_OLLAMA = false;
       updateAIHeaderLabel();
       thinkBubble.textContent = 'Ollama not reachable — switched to cloud. Resend your question.';
     } else {
@@ -1097,8 +1128,8 @@ async function sendAIMessage() {
         ? `<b>AI unavailable.</b><br>Use ⚙ to set your local Qwen endpoint or run Ollama on localhost.`
         : `Error: ${err.message}`;
     }
+    thinkBubble.classList.add('active');
   }
-
 
   responseArea.scrollTop = responseArea.scrollHeight;
 }

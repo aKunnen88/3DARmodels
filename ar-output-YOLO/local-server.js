@@ -59,21 +59,21 @@ function proxyChat(req, res) {
   req.on('end', () => {
     let parsed;
     try { parsed = JSON.parse(body); } catch { parsed = {}; }
-    parsed.model = parsed.model || OLLAMA_MODEL;
-    delete parsed.stream;
+    parsed.model  = parsed.model || OLLAMA_MODEL;
+    parsed.stream = true; // always stream from Ollama
 
     const payload = JSON.stringify(parsed);
     const ollamaReq = http.request(OLLAMA_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
     }, ollamaRes => {
-      let data = '';
-      ollamaRes.on('data', chunk => { data += chunk; });
-      ollamaRes.on('end', () => {
-        cors(res);
-        res.writeHead(ollamaRes.statusCode, { 'Content-Type': 'application/json' });
-        res.end(data);
+      cors(res);
+      // Pipe the SSE stream straight through to the caller
+      res.writeHead(ollamaRes.statusCode, {
+        'Content-Type':  'text/event-stream',
+        'Cache-Control': 'no-cache',
       });
+      ollamaRes.pipe(res);
     });
 
     ollamaReq.on('error', err => {
