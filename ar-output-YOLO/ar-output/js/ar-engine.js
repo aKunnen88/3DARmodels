@@ -865,14 +865,19 @@ const OLLAMA_MODEL  = 'qwen2.5:3b';
 const VERCEL_URL    = '/api/chat';
 const VERCEL_MODEL  = 'meta/llama-3.1-8b-instruct';
 
-// Detect environment: if running on localhost → prefer Ollama
-const IS_LOCAL      = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-let   USE_OLLAMA    = IS_LOCAL;   // will be set false if Ollama ping fails
-let   useArduinoSkill = false;    // ArduinoExpert skill toggle
-let   customEndpointURL = '';     // user-configured local Qwen endpoint
+// Detect environment:
+// • localhost / 127.0.0.1   → prefer Ollama directly (dev machine browser)
+// • HTTP (local-server.js)  → /api/chat proxies to Ollama on the server
+// • HTTPS (Vercel)          → /api/chat calls NVIDIA cloud API
+const IS_LOCALHOST  = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+const IS_HTTP_LOCAL = location.protocol === 'http:' && !IS_LOCALHOST; // e.g. 192.168.x.x:3001
+const IS_LOCAL      = IS_LOCALHOST;
+let   USE_OLLAMA    = IS_LOCALHOST;  // will be set false if Ollama ping fails
+let   useArduinoSkill = false;       // ArduinoExpert skill toggle
+let   customEndpointURL = '';        // user-configured local Qwen endpoint
 
-// Pre-flight: ping Ollama to see if it's actually running
-if (IS_LOCAL) {
+// Pre-flight: ping Ollama to see if it's actually running (only on localhost)
+if (IS_LOCALHOST) {
   fetch('http://localhost:11434', { method: 'GET', signal: AbortSignal.timeout(1500) })
     .catch(() => { USE_OLLAMA = false; });
 }
@@ -928,6 +933,8 @@ function updateAIHeaderLabel() {
   let label;
   if (customEndpointURL) {
     label = 'qwen2.5 · local custom';
+  } else if (IS_HTTP_LOCAL) {
+    label = 'qwen2.5:3b · local server';
   } else {
     label = USE_OLLAMA ? 'qwen2.5:3b · local' : 'llama-3.1-8b · cloud';
   }
