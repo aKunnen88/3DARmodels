@@ -696,8 +696,8 @@ async function detect() {
     const base64 = snap.toDataURL('image/jpeg', 0.8).split(',')[1];
 
     let data;
-    if (IS_LOCAL) {
-      // Direct call — key is only exposed on your own machine
+    if (IS_LOCAL || IS_HTTP_LOCAL) {
+      // Direct Roboflow call — works on localhost and LAN HTTP server (192.168.x.x)
       const res = await fetch(
         `https://detect.roboflow.com/${RF_MODEL}?api_key=${RF_API_KEY}&confidence=50&overlap=30`,
         { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: base64 }
@@ -874,7 +874,7 @@ const IS_HTTP_LOCAL = location.protocol === 'http:' && !IS_LOCALHOST; // e.g. 19
 const IS_LOCAL      = IS_LOCALHOST;
 let   USE_OLLAMA    = IS_LOCALHOST;  // will be set false if Ollama ping fails
 let   useArduinoSkill = false;       // ArduinoExpert skill toggle
-let   customEndpointURL = '';        // user-configured local Qwen endpoint
+let   customEndpointURL = localStorage.getItem('qwen_endpoint') || ''; // persisted across reloads
 
 // Pre-flight: ping Ollama to see if it's actually running (only on localhost)
 if (IS_LOCALHOST) {
@@ -967,8 +967,15 @@ aiEndpointBtn.addEventListener('click', () => {
   if (!open) aiEndpointInput.focus();
 });
 
+// Pre-fill from localStorage
+if (customEndpointURL) {
+  aiEndpointInput.value = customEndpointURL;
+  updateAIHeaderLabel();
+}
+
 aiEndpointInput.addEventListener('input', () => {
   customEndpointURL = aiEndpointInput.value.trim();
+  localStorage.setItem('qwen_endpoint', customEndpointURL);
   updateAIHeaderLabel();
 });
 
