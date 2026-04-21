@@ -32,8 +32,8 @@ export default async function handler(req, res) {
   try {
     const body = req.body;
 
-    // Override model to a fast, free NVIDIA-hosted model
-    body.model = body.model || 'meta/llama-3.1-8b-instruct';
+    // Default to Qwen 2.5 7B hosted on NVIDIA NIM (same family as local Ollama model)
+    body.model = body.model || 'qwen/qwen2.5-7b-instruct';
     // Remove keys Ollama adds that NVIDIA doesn't support
     delete body.stream;
 

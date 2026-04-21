@@ -863,7 +863,7 @@ function updateSparkCanvas() {
 const OLLAMA_URL    = 'http://localhost:11434/v1/chat/completions';
 const OLLAMA_MODEL  = 'qwen2.5:3b';
 const VERCEL_URL    = '/api/chat';
-const VERCEL_MODEL  = 'meta/llama-3.1-8b-instruct';
+const VERCEL_MODEL  = 'qwen/qwen2.5-7b-instruct';
 
 // Detect environment:
 // • localhost / 127.0.0.1   → prefer Ollama directly (dev machine browser)
@@ -936,7 +936,7 @@ function updateAIHeaderLabel() {
   } else if (IS_HTTP_LOCAL) {
     label = 'qwen2.5:3b · local server';
   } else {
-    label = USE_OLLAMA ? 'qwen2.5:3b · local' : 'llama-3.1-8b · cloud';
+    label = USE_OLLAMA ? 'qwen2.5:3b · local' : 'qwen2.5-7b · cloud';
   }
   const skillTag = useArduinoSkill ? ' <span style="color:var(--accent);font-size:9px;">⚡ skill</span>' : '';
   aiHeaderTitle.innerHTML = `<span class="dot"></span> AI Assistant <small style="font-size:10px;opacity:0.55;margin-left:6px;">${label}${skillTag}</small>`;
