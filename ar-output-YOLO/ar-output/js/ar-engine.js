@@ -464,9 +464,9 @@ function tickScreenMarkers() {
   const cardH   = 130;
   const BEAM_GAP = 18;
   ssTargetX = centX;
-  // Keep card in top 25 % of screen so it never overlaps component pills
-  const maxCardY = window.innerHeight * 0.25;
-  ssTargetY = Math.min(maxCardY, Math.max(cardH + 12, centY - 580));
+  // Cap at top 10 % of screen so the card never overlaps component pills
+  const maxCardY = window.innerHeight * 0.10;
+  ssTargetY = Math.min(maxCardY, Math.max(cardH + 8, centY - 680));
 
   ssSensorCardX += (ssTargetX - ssSensorCardX) * LERP;
   ssSensorCardY += (ssTargetY - ssSensorCardY) * LERP;
