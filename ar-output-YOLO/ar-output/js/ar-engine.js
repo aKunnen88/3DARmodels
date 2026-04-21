@@ -1195,6 +1195,41 @@ if (SpeechRecognition) {
   micBtn.title = 'Speech not supported';
 }
 
+// ── Zoom button ───────────────────────────────────────────────
+const zoomBtn = document.getElementById('zoom-btn');
+let zoomOut = false;
+
+zoomBtn.addEventListener('click', async () => {
+  zoomOut = !zoomOut;
+  zoomBtn.textContent = zoomOut ? '0.5×' : '1×';
+  zoomBtn.classList.toggle('zoomed-out', zoomOut);
+
+  // Try hardware zoom via MediaStreamTrack constraint
+  const track = video?.srcObject?.getVideoTracks?.()[0];
+  if (track) {
+    try {
+      const caps = track.getCapabilities?.() ?? {};
+      if (caps.zoom) {
+        const val = zoomOut ? caps.zoom.min : 1;
+        await track.applyConstraints({ advanced: [{ zoom: val }] });
+        return; // hardware zoom applied — no CSS needed
+      }
+    } catch { /* constraint not supported — fall through to CSS */ }
+  }
+
+  // CSS fallback: scale video + WebGL canvas + beam overlay together
+  const scale = zoomOut ? 'scale(0.6)' : '';
+  const origin = 'center center';
+  [video,
+   document.getElementById('beam-canvas'),
+   document.querySelector('canvas:not(#beam-canvas)')
+  ].forEach(el => {
+    if (!el) return;
+    el.style.transform       = scale;
+    el.style.transformOrigin = origin;
+  });
+});
+
 // ── Action Dock wiring ────────────────────────────────────────
 document.getElementById('home-btn').addEventListener('click', () => {
   worldUIGroup.visible = !worldUIGroup.visible;
