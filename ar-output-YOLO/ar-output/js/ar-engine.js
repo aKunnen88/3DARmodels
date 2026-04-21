@@ -1040,28 +1040,32 @@ async function sendAIMessage() {
   responseArea.scrollTop = responseArea.scrollHeight;
 
   try {
-    // Pick backend: custom URL > Ollama locally > Vercel /api/chat
-    const endpoint = customEndpointURL || (USE_OLLAMA ? OLLAMA_URL : VERCEL_URL);
-    const model    = customEndpointURL ? OLLAMA_MODEL : (USE_OLLAMA ? OLLAMA_MODEL : VERCEL_MODEL);
+    // Route decision:
+    // • localhost + Ollama running → call Ollama directly
+    // • custom endpoint set        → call VERCEL_URL which proxies server-side to the
+    //                                ngrok/local URL (avoids browser CORS + ngrok interstitial)
+    // • everything else            → call VERCEL_URL → NVIDIA cloud
+    const useLocal = USE_OLLAMA && !customEndpointURL;
+    const endpoint = useLocal ? OLLAMA_URL : VERCEL_URL;
+    const model    = customEndpointURL ? OLLAMA_MODEL : (useLocal ? OLLAMA_MODEL : VERCEL_MODEL);
 
-    const headers = { 'Content-Type': 'application/json' };
-    // ngrok free tier blocks browser fetch without this header
-    if (customEndpointURL && customEndpointURL.includes('ngrok')) {
-      headers['ngrok-skip-browser-warning'] = 'true';
-    }
+    const requestBody = {
+      model,
+      messages: [
+        { role: 'system', content: buildSystemPrompt() },
+        { role: 'user',   content: question },
+      ],
+      max_tokens: 300,
+      stream: false,
+    };
+
+    // Pass ngrok/local URL to Vercel so it proxies server-side (no browser CORS issues)
+    if (customEndpointURL) requestBody.localEndpoint = customEndpointURL;
 
     const res = await fetch(endpoint, {
       method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: buildSystemPrompt() },
-          { role: 'user',   content: question },
-        ],
-        max_tokens: 300,
-        stream: false,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
     });
 
     if (!res.ok) {
