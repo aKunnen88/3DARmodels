@@ -722,8 +722,10 @@ async function detect() {
 
 // ── Resolve class → component DB entry ────────────────────────
 function resolveComponent(className) {
-  const id = className.toLowerCase().replace(/\s+/g, '_');
-  return window.COMPONENTS_DB[id] || window.COMPONENTS_DB['unknown'];
+  const raw = String(className || '').toLowerCase().trim();
+  const id = raw.replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const mappedId = window.CLASS_MAP?.[raw] || window.CLASS_MAP?.[id] || id;
+  return window.COMPONENTS_DB[mappedId] || window.COMPONENTS_DB['unknown'];
 }
 
 // ── Detail panel ───────────────────────────────────────────────

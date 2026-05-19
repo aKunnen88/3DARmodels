@@ -150,6 +150,24 @@ window.COMPONENTS_DB = {
   },
 
   // ── COCO-SSD default classes mapped to electronics context ───────────────
+  buzzer: {
+    id: "buzzer",
+    name: "Buzzer",
+    fullName: "Piezo Buzzer",
+    icon: "♪",
+    badge: "OUTPUT",
+    badgeColor: "#f59e0b",
+    color: "#fbbf24",
+    desc: "A buzzer is an output component that converts an electrical signal into sound. In Arduino projects it is often used for alarms, feedback tones, warnings, or confirmation beeps. A piezo buzzer can be driven from a digital pin; active buzzers make sound with a simple HIGH signal, while passive buzzers need a tone() signal.",
+    specs: [
+      { label: "Type", value: "Active / Passive piezo" },
+      { label: "Operating Voltage", value: "3.3 - 5 V typical" },
+      { label: "Signal", value: "Digital output / PWM tone" },
+      { label: "Arduino Function", value: "digitalWrite() or tone()" }
+    ],
+    tip: "Connect the + pin to an Arduino digital pin and the - pin to GND. Use tone(pin, 1000) for a 1 kHz beep on a passive buzzer, or digitalWrite(pin, HIGH) for an active buzzer."
+  },
+
   cell_phone: {
     id: "cell_phone",
     name: "Smartphone",
@@ -224,6 +242,10 @@ window.COMPONENTS_DB = {
 
 // Map COCO-SSD class names → component IDs
 window.CLASS_MAP = {
+  "piezo buzzer": "buzzer",
+  "piezo_buzzer": "buzzer",
+  "active buzzer": "buzzer",
+  "active_buzzer": "buzzer",
   "cell phone": "cell_phone",
   "laptop":     "laptop",
   "book":       "book",
