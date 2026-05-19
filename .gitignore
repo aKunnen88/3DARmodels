@@ -6,3 +6,5 @@ mcp_client/
 venv/
 .agents/
 .claude/
+POSTER/
+PAPER/
