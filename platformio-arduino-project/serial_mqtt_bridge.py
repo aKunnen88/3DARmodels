@@ -3,6 +3,7 @@ import serial.tools.list_ports
 import paho.mqtt.client as mqtt
 import time
 import os
+import socket
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,7 +14,11 @@ MQTT_PORT   = int(os.getenv("MQTT_PORT", 8883))
 MQTT_TOPIC  = os.getenv("MQTT_TOPIC")
 MQTT_USER   = os.getenv("MQTT_USER")
 MQTT_PASS   = os.getenv("MQTT_PASS")
+MQTT_TRANSPORT = os.getenv("MQTT_TRANSPORT", "tcp").lower()
 BAUD_RATE = 115200
+CONNECT_TIMEOUT = 10
+
+socket.setdefaulttimeout(CONNECT_TIMEOUT)
 
 def find_arduino_port():
     ports = serial.tools.list_ports.comports()
@@ -26,11 +31,11 @@ def find_arduino_port():
         return ports[0].device
     return None
 
-def on_connect(client, userdata, flags, rc):
-    if rc == 0:
-        print(f"✅ Connected to MQTT Broker: {MQTT_BROKER}")
+def on_connect(client, userdata, flags, reason_code, properties=None):
+    if reason_code == 0:
+        print(f"Connected to MQTT Broker: {MQTT_BROKER}")
     else:
-        print(f"❌ Failed to connect, return code {rc}")
+        print(f"Failed to connect, return code {reason_code}")
 
 def main():
     print("Searching for Arduino serial port...")
@@ -51,16 +56,26 @@ def main():
         return
 
     print("🔗 Connecting to MQTT...")
-    client = mqtt.Client()
+    if not all([MQTT_BROKER, MQTT_TOPIC, MQTT_USER, MQTT_PASS]):
+        print("MQTT configuration is incomplete. Check MQTT_BROKER, MQTT_TOPIC, MQTT_USER and MQTT_PASS in .env.")
+        return
+
+    transport = "websockets" if MQTT_TRANSPORT in ("websocket", "websockets", "ws", "wss") else "tcp"
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, transport=transport)
     client.on_connect = on_connect
     client.username_pw_set(MQTT_USER, MQTT_PASS)
-    client.tls_set()  # enables TLS for port 8883
+    client.tls_set()
+    if transport == "websockets":
+        client.ws_set_options(path="/mqtt")
 
     try:
+        print(f"MQTT target: {MQTT_BROKER}:{MQTT_PORT} ({transport}, timeout {CONNECT_TIMEOUT}s)")
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.loop_start()
     except Exception as e:
-        print(f"❌ Error connecting to MQTT: {e}")
+        print(f"Error connecting to MQTT: {e}")
+        if transport == "tcp":
+            print("Tip: if port 8883 is blocked, set MQTT_TRANSPORT=websockets and MQTT_PORT=8884 in .env.")
         return
 
     print(f"📡 Forwarding data from {port_name} to MQTT topic '{MQTT_TOPIC}'...")
