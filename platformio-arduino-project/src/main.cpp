@@ -1,18 +1,19 @@
 #include <Arduino.h>
 
-const int ledPin = LED_BUILTIN;
-const int trigPin = 9;
-const int echoPin = 10;
+const int ledPin    = 4;
+const int buzzerPin = 3;
+const int trigPin   = 9;
+const int echoPin   = 10;
 
 long duration;
 float distanceCm;
 
 void setup() {
-    pinMode(ledPin, OUTPUT);
-    Serial.begin(115200);  // Verhoog naar 115200 voor sneller streamen
-    
-    pinMode(trigPin, OUTPUT);
-    pinMode(echoPin, INPUT);
+    pinMode(ledPin,    OUTPUT);
+    pinMode(buzzerPin, OUTPUT);
+    pinMode(trigPin,   OUTPUT);
+    pinMode(echoPin,   INPUT);
+    Serial.begin(115200);
 }
 
 void loop() {
@@ -26,11 +27,16 @@ void loop() {
     duration = pulseIn(echoPin, HIGH, 20000);
 
     if (duration == 0) {
-        Serial.println(-1);  // Error waarde
+        digitalWrite(ledPin,    LOW);
+        digitalWrite(buzzerPin, LOW);
+        Serial.println(-1);
     } else {
         distanceCm = duration * 0.0343 / 2;
-        Serial.println((int)distanceCm);  // Alleen het getal
+        bool alert = distanceCm < 15;
+        digitalWrite(ledPin,    alert ? HIGH : LOW);
+        digitalWrite(buzzerPin, alert ? HIGH : LOW);
+        Serial.println((int)distanceCm);
     }
 
-    delay(100);  // 100ms interval
+    delay(100);
 }
