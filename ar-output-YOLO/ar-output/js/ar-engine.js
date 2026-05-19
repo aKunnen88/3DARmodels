@@ -682,11 +682,7 @@ function getScreenCoords(vx, vy) {
 }
 
 // ── Roboflow YOLO detection ────────────────────────────────────
-// On localhost: call Roboflow directly (key only visible locally)
-// On Vercel:    call /api/detect  → key stays server-side
-const RF_API_KEY = 'sCeSU3tBkqCWRttvc4p5';  // used only on localhost
-const RF_MODEL   = 'my-first-project-iccnb/2';
-
+// Roboflow detection is proxied through /api/detect so the key stays server-side.
 async function detect() {
   if (!state.scanning || !video || !video.videoWidth || video.paused) return;
   state.scanning = false;
@@ -697,24 +693,12 @@ async function detect() {
     snap.getContext('2d').drawImage(video, 0, 0);
     const base64 = snap.toDataURL('image/jpeg', 0.8).split(',')[1];
 
-    let data;
-    if (IS_LOCAL || IS_HTTP_LOCAL) {
-      // Direct Roboflow call — works on localhost and LAN HTTP server (192.168.x.x)
-      const res = await fetch(
-        `https://detect.roboflow.com/${RF_MODEL}?api_key=${RF_API_KEY}&confidence=50&overlap=30`,
-        { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: base64 }
-      );
-      data = await res.json();
-    } else {
-      // Vercel: proxy through /api/detect — key stays in environment variable
-      const res = await fetch('/api/detect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64 }),
-      });
-      data = await res.json();
-    }
-
+    const res = await fetch('/api/detect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: base64 }),
+    });
+    const data = await res.json();
 
     const preds = (data.predictions || []).map(p => ({
       class: p.class,

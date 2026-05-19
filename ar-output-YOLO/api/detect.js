@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST')   return res.status(405).json({ error: 'Method not allowed' });
 
   const key   = process.env.ROBOFLOW_API_KEY;
-  const model = process.env.ROBOFLOW_MODEL || 'my-first-project-iccnb/2';
+  const model = process.env.ROBOFLOW_MODEL || 'my-first-project-iccnb/3';
 
   if (!key) {
     return res.status(500).json({

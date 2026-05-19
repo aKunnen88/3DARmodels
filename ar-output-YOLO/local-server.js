@@ -14,6 +14,8 @@ const PORT        = 3001;
 const STATIC_DIR  = path.join(__dirname, 'ar-output');
 const OLLAMA_URL  = 'http://localhost:11434/v1/chat/completions';
 const OLLAMA_MODEL = 'qwen2.5:3b';
+const ROBOFLOW_API_KEY = process.env.ROBOFLOW_API_KEY || 'sCeSU3tBkqCWRttvc4p5';
+const ROBOFLOW_MODEL   = process.env.ROBOFLOW_MODEL || 'my-first-project-iccnb/3';
 
 const MIME = {
   '.html': 'text/html',
@@ -87,6 +89,45 @@ function proxyChat(req, res) {
   });
 }
 
+function proxyDetect(req, res) {
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', () => {
+    let parsed;
+    try { parsed = JSON.parse(body); } catch { parsed = {}; }
+
+    if (!parsed.image) {
+      cors(res);
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing image field' }));
+      return;
+    }
+
+    const rfReq = https.request({
+      hostname: 'detect.roboflow.com',
+      path: `/${ROBOFLOW_MODEL}?api_key=${ROBOFLOW_API_KEY}&confidence=50&overlap=30`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(parsed.image),
+      },
+    }, rfRes => {
+      cors(res);
+      res.writeHead(rfRes.statusCode, { 'Content-Type': 'application/json' });
+      rfRes.pipe(res);
+    });
+
+    rfReq.on('error', err => {
+      cors(res);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: `Roboflow unreachable: ${err.message}` }));
+    });
+
+    rfReq.write(parsed.image);
+    rfReq.end();
+  });
+}
+
 const server = http.createServer((req, res) => {
   cors(res);
 
@@ -94,6 +135,8 @@ const server = http.createServer((req, res) => {
 
   if (req.url.startsWith('/api/chat') && req.method === 'POST') {
     proxyChat(req, res);
+  } else if (req.url.startsWith('/api/detect') && req.method === 'POST') {
+    proxyDetect(req, res);
   } else {
     serveStatic(req, res);
   }
@@ -105,4 +148,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  → Phone / tablet: http://192.168.0.142:${PORT}`);
   console.log(`\n  Proxying AI requests to Ollama at ${OLLAMA_URL}`);
   console.log(`  Model: ${OLLAMA_MODEL}\n`);
+  console.log(`  Proxying Roboflow detections to model: ${ROBOFLOW_MODEL}\n`);
 });
