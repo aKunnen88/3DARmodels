@@ -1,9 +1,9 @@
 window.STEPS_DB = [
   {
     id: 1, total: 6,
-    title: "Place the Arduino Uno",
-    description: "Set the Arduino Uno on the breadboard base, USB port facing away from you. Align the pin headers with rows 1–5.",
-    requires: [],
+    title: "Place the Breadboard",
+    description: "Place the breadboard flat in the camera view with the power rails visible. Keep it well lit so the AR guide can detect it before you add the components.",
+    requires: ["breadboard"],
     verifyLabel: "Verify",
   },
   {
@@ -29,16 +29,16 @@ window.STEPS_DB = [
   },
   {
     id: 5, total: 6,
-    title: "Add the LED Indicator",
-    description: "Insert the red LED into row 12. Long leg (anode) to pin 13 via 220Ω resistor. Short leg to GND.",
-    requires: ["redled"],
+    title: "Add LED and Buzzer Outputs",
+    description: "Connect the red LED anode to digital pin 4 through a 220 ohm resistor and its cathode to GND. Connect the active 5V piezo buzzer positive pin to digital pin 3 and negative pin to GND.",
+    requires: ["redled", "buzzer"],
     verifyLabel: "Verify",
   },
   {
     id: 6, total: 6,
     title: "Upload and Test",
-    description: "Upload the Arduino sketch. The LED should blink when an object is detected within 30 cm.",
-    requires: ["redled", "ultrasonesensor"],
+    description: "Upload the Arduino sketch. When an object is detected within 15 cm, the LED and active piezo buzzer should turn on.",
+    requires: ["redled", "ultrasonesensor", "buzzer"],
     verifyLabel: "Complete!",
   },
 ];
