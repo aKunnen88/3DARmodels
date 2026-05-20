@@ -204,8 +204,6 @@ async function initMindAR() {
     // Breathe animation on world panels
     breathePanels(now);
 
-    // Sparkline
-    updateSparkCanvas();
   });
 }
 
@@ -766,7 +764,6 @@ function hideLoader() {
 // ── MQTT ──────────────────────────────────────────────────────
 let latestUS   = '—';
 let latestLED  = '—';
-const usHistory = [];
 
 function connectMQTT() {
   const client = mqtt.connect(
@@ -781,8 +778,6 @@ function connectMQTT() {
     const val = parseFloat(payload.toString());
     if (!isNaN(val)) {
       latestUS = val === -1 ? '—' : val.toFixed(1);
-      usHistory.push(val === -1 ? null : val);
-      if (usHistory.length > 40) usHistory.shift();
     }
   });
   client.on('error',        () => mqttDot.classList.remove('connected'));
@@ -810,39 +805,6 @@ mPlaneReset.addEventListener('click', () => {
   clearInterval(mPlaneSyncInterval);
   worldUIGroup.visible = false;
 });
-
-// ── Sparkline canvas ──────────────────────────────────────────
-const sparkCanvas = document.getElementById('us-spark');
-const sparkCtx    = sparkCanvas ? sparkCanvas.getContext('2d') : null;
-
-function updateSparkCanvas() {
-  if (!sparkCtx || usHistory.length < 2) return;
-  const w = sparkCanvas.offsetWidth  || 100;
-  const h = sparkCanvas.offsetHeight || 32;
-  if (sparkCanvas.width !== w)  sparkCanvas.width  = w;
-  if (sparkCanvas.height !== h) sparkCanvas.height = h;
-
-  const vals = usHistory.filter(v => v !== null);
-  if (vals.length < 2) return;
-
-  const min = Math.min(...vals);
-  const max = Math.max(...vals) || min + 1;
-  const step = w / (vals.length - 1);
-
-  sparkCtx.clearRect(0, 0, w, h);
-  sparkCtx.beginPath();
-  sparkCtx.strokeStyle = 'rgba(125,211,252,0.7)';
-  sparkCtx.lineWidth   = 1.5;
-  sparkCtx.lineCap     = 'round';
-  sparkCtx.lineJoin    = 'round';
-
-  vals.forEach((v, i) => {
-    const x = i * step;
-    const y = h - ((v - min) / (max - min)) * (h - 4) - 2;
-    i === 0 ? sparkCtx.moveTo(x, y) : sparkCtx.lineTo(x, y);
-  });
-  sparkCtx.stroke();
-}
 
 // ── AI Panel — smart backend detection ───────────────────────
 // • custom endpoint input → always used when set
